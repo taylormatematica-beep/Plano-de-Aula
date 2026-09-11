@@ -8,7 +8,7 @@ Suporta:
 Configuração (variáveis de ambiente ou arquivo config.json ao lado deste arquivo):
   AI_PROVIDER = "openai" | "gemini"
   AI_API_KEY  = chave da API
-  AI_MODEL    = ex.: "gpt-4o-mini" (OpenAI) ou "gemini-2.5-flash" (Gemini)
+  AI_MODEL    = ex.: "gpt-4o-mini" (OpenAI) ou "gemini-3.8-flash" (Gemini)
   AI_BASE_URL = (opcional, só OpenAI-compatível) ex.: "https://api.groq.com/openai/v1"
 """
 import json
@@ -52,7 +52,7 @@ def carregar_config(overrides: dict | None = None) -> dict:
 
     cfg["provider"] = (cfg["provider"] or "openai").lower().strip()
     if not cfg["model"]:
-        cfg["model"] = "gemini-2.5-flash" if cfg["provider"] == "gemini" else "gpt-4o-mini"
+        cfg["model"] = "gemini-3.8-flash" if cfg["provider"] == "gemini" else "gpt-4o-mini"
     if not cfg["base_url"]:
         cfg["base_url"] = "https://api.openai.com/v1"
     return cfg
@@ -131,18 +131,76 @@ def _chamar_openai(cfg: dict, prompt: str) -> str:
     return r.json()["choices"][0]["message"]["content"]
 
 
-GEMINI_FALLBACKS = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash", "gemini-2.5-flash-lite"]
+# Preferência de modelos Gemini (do mais recomendado ao menos). A lista real
+# disponível para a chave é descoberta automaticamente na API (ListModels).
+GEMINI_PREFERIDOS = [
+    "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash",
+    "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3-flash-preview",
+    "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-flash-latest", "gemini-2.0-flash",
+]
 MODELOS_GEMINI_DESCONTINUADOS = {"gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.5-flash-8b",
                                  "gemini-1.5-flash-latest", "gemini-1.5-pro-latest", "gemini-pro"}
-TENTATIVAS_POR_MODELO = 3          # novas tentativas quando o Google responde 500/503 (sobrecarga)
-ESPERA_ENTRE_TENTATIVAS = (3, 6, 10)  # segundos
+TENTATIVAS_POR_MODELO = 2              # novas tentativas quando o Google responde 500/503
+ESPERA_ENTRE_TENTATIVAS = (3, 6, 10)   # segundos
+_cache_modelos: dict = {"chave": None, "lista": [], "quando": 0.0}
+
+GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
+
+
+def _headers(api_key: str) -> dict:
+    # A chave vai no cabeçalho (e NÃO na URL) para nunca aparecer em mensagens de erro/logs.
+    return {"x-goog-api-key": api_key, "Content-Type": "application/json"}
+
+
+def listar_modelos_gemini(api_key: str) -> list[str]:
+    """Consulta a API do Google e devolve os modelos de texto disponíveis para esta chave."""
+    agora = time.time()
+    if _cache_modelos["chave"] == api_key and agora - _cache_modelos["quando"] < 3600:
+        return _cache_modelos["lista"]
+    nomes, token = [], None
+    for _ in range(5):
+        url = f"{GEMINI_BASE}/models?pageSize=200" + (f"&pageToken={token}" if token else "")
+        r = requests.get(url, headers=_headers(api_key), timeout=30)
+        if r.status_code != 200:
+            break
+        j = r.json()
+        for m in j.get("models", []):
+            if "generateContent" in m.get("supportedGenerationMethods", []):
+                nomes.append(m["name"].split("/", 1)[-1])
+        token = j.get("nextPageToken")
+        if not token:
+            break
+    _cache_modelos.update(chave=api_key, lista=nomes, quando=agora)
+    return nomes
+
+
+def _ordenar_candidatos(preferido: str, disponiveis: list[str]) -> list[str]:
+    """Monta a ordem de tentativa: modelo configurado, depois os preferidos que existem,
+    depois qualquer outro 'flash' de texto disponível (sem tts/image/live/embedding)."""
+    def util(n: str) -> bool:
+        ruins = ("tts", "image", "live", "audio", "embedding", "transcribe", "translate", "omni", "gemma", "imagen", "veo")
+        return "gemini" in n and not any(x in n for x in ruins)
+
+    disp = [d for d in disponiveis if util(d)]
+    ordem: list[str] = []
+    if preferido and preferido not in MODELOS_GEMINI_DESCONTINUADOS:
+        ordem.append(preferido)
+    for m in GEMINI_PREFERIDOS:
+        if (not disp or m in disp) and m not in ordem:
+            ordem.append(m)
+    # demais flash disponíveis (mais novos primeiro pela ordenação alfabética inversa)
+    for m in sorted(disp, reverse=True):
+        if "flash" in m and m not in ordem:
+            ordem.append(m)
+    for m in sorted(disp, reverse=True):
+        if m not in ordem:
+            ordem.append(m)
+    return ordem[:12]
 
 
 def _gemini_request(model: str, api_key: str, body: dict) -> requests.Response:
-    # A chave vai no cabeçalho (e NÃO na URL) para nunca aparecer em mensagens de erro/logs.
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-    headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
-    return requests.post(url, headers=headers, json=body, timeout=120)
+    return requests.post(f"{GEMINI_BASE}/models/{model}:generateContent",
+                         headers=_headers(api_key), json=body, timeout=120)
 
 
 def _msg_erro_google(r: requests.Response) -> str:
@@ -158,10 +216,11 @@ def _chamar_gemini(cfg: dict, prompt: str) -> str:
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.7, "responseMimeType": "application/json"},
     }
-    modelo = cfg["model"].strip()
-    if modelo in MODELOS_GEMINI_DESCONTINUADOS:
-        modelo = GEMINI_FALLBACKS[0]  # 1.5 foi desligado pelo Google em set/2025
-    candidatos = [modelo] + [m for m in GEMINI_FALLBACKS if m != modelo]
+    try:
+        disponiveis = listar_modelos_gemini(cfg["api_key"])
+    except requests.RequestException:
+        disponiveis = []
+    candidatos = _ordenar_candidatos(cfg["model"].strip(), disponiveis)
 
     erros = []
     for m in candidatos:
@@ -177,7 +236,7 @@ def _chamar_gemini(cfg: dict, prompt: str) -> str:
                 try:
                     return r.json()["candidates"][0]["content"]["parts"][0]["text"]
                 except (KeyError, IndexError):
-                    erros.append(f"{m}: resposta vazia (possível bloqueio de conteúdo)")
+                    erros.append(f"{m}: resposta vazia")
                     break
             if r.status_code == 404:                  # modelo não existe -> próximo modelo
                 erros.append(f"{m}: não encontrado (404)")
@@ -186,21 +245,18 @@ def _chamar_gemini(cfg: dict, prompt: str) -> str:
                 raise RuntimeError("Chave de API do Gemini inválida ou sem permissão. "
                                    "Gere outra em https://aistudio.google.com/app/apikey "
                                    "e atualize a variável AI_API_KEY.")
-            if r.status_code == 429:
-                erros.append(f"{m}: limite de uso (429)")
+            if r.status_code in (429, 500, 502, 503, 504):  # limite/sobrecarga -> espera e repete
+                erros.append(f"{m}: indisponível ({r.status_code})")
                 time.sleep(ESPERA_ENTRE_TENTATIVAS[min(tentativa, 2)])
                 continue
-            if r.status_code in (500, 502, 503, 504):  # sobrecarga do Google -> espera e repete
-                erros.append(f"{m}: servidor do Google indisponível ({r.status_code})")
-                time.sleep(ESPERA_ENTRE_TENTATIVAS[min(tentativa, 2)])
-                continue
-            # outros erros (400 etc.)
             erros.append(f"{m}: {r.status_code} {_msg_erro_google(r)[:120]}")
             break
 
+    lista = ", ".join(disponiveis[:15]) or "não foi possível listar"
     raise RuntimeError(
-        "O serviço do Google Gemini está temporariamente indisponível ou sobrecarregado. "
-        "Aguarde 1–2 minutos e clique em Gerar novamente. Detalhes: " + "; ".join(erros[-4:])
+        "O serviço do Google Gemini está indisponível para todos os modelos testados. "
+        "Aguarde 1–2 minutos e tente novamente. "
+        f"Detalhes: {'; '.join(erros[-5:])}. Modelos visíveis para a sua chave: {lista}"
     )
 
 
