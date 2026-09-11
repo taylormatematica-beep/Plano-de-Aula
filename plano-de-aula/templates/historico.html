@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Histórico de Planos — Presidente Bernardes</title>
+<style>
+  :root{--preto:#111;--verm:#e10600;--cinza:#f4f4f5;--borda:#d9d9de;--txt:#222;--muted:#6b6b76}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI",Roboto,Arial,sans-serif;background:var(--cinza);color:var(--txt)}
+  header{background:#fff;border-bottom:3px solid var(--verm);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  header img{height:44px}
+  .links{display:flex;gap:8px;align-items:center;font-size:13px}
+  .link{background:none;border:1px solid var(--borda);border-radius:6px;padding:6px 10px;cursor:pointer;font-size:13px;text-decoration:none;color:inherit}
+  .badge{font-size:12px;padding:3px 8px;border-radius:12px;background:#e8f5ec;color:#186a30;border:1px solid #bfe3c9}
+  main{max-width:1180px;margin:24px auto;padding:0 16px}
+  .card{background:#fff;border:1px solid var(--borda);border-radius:10px;padding:20px}
+  h1{font-size:20px;margin:0 0 4px}.sub{font-size:13px;color:var(--muted);margin:0 0 16px}
+  .filtros{display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto;gap:10px;margin-bottom:16px}
+  @media(max-width:800px){.filtros{grid-template-columns:1fr 1fr}}
+  input,select{width:100%;padding:9px 10px;border:1px solid var(--borda);border-radius:6px;font-size:14px;font-family:inherit;background:#fff}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{padding:10px 8px;border-bottom:1px solid var(--borda);text-align:left;vertical-align:middle}
+  th{font-size:12px;text-transform:uppercase;color:var(--muted);letter-spacing:.03em}
+  tr:hover td{background:#fafafa}
+  .acao{border:1px solid var(--borda);background:#fff;border-radius:6px;padding:5px 9px;cursor:pointer;font-size:13px;margin-right:4px;text-decoration:none;color:inherit;display:inline-block}
+  .acao.red{color:var(--verm);border-color:#f3b4b4}
+  .acao.ok{color:#186a30;border-color:#bfe3c9;background:#f2fbf4}
+  .visto{color:#186a30;font-size:12px;white-space:nowrap}
+  .vazio{color:var(--muted);text-align:center;padding:50px 20px}
+  .aviso{background:#fff7e6;border:1px solid #f5d38a;color:#7a4b00;padding:10px 12px;border-radius:8px;font-size:13px;margin-bottom:14px}
+  .stats{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+  .stat{background:var(--cinza);border-radius:8px;padding:10px 14px;font-size:13px}.stat b{font-size:18px;display:block}
+</style>
+</head>
+<body>
+<header>
+  <img src="/static/logo.png" alt="Presidente Bernardes">
+  <div class="links">
+    {% if e_supervisao and tem_senha_sup %}<span class="badge">Supervisão</span>{% endif %}
+    <a class="link" href="/">✨ Novo plano</a>
+    {% if tem_senha_sup %}
+      {% if e_supervisao %}<a class="link" href="/supervisao/sair">Sair da supervisão</a>
+      {% else %}<a class="link" href="/supervisao/login">🔑 Área da supervisão</a>{% endif %}
+    {% endif %}
+  </div>
+</header>
+
+<main>
+  <section class="card">
+    <h1>Histórico de planos de aula</h1>
+    <p class="sub">
+      {% if e_supervisao %}Todos os planos gerados pelos professores. Marque como <b>visto</b> após conferir.
+      {% else %}Seus planos gerados. Você pode reabrir, editar e baixar o PDF novamente.{% endif %}
+    </p>
+
+    {% if not e_supervisao and not professor_atual %}
+    <div class="aviso">Informe seu nome abaixo (o mesmo usado ao gerar os planos) para ver o seu histórico.</div>
+    {% endif %}
+
+    <div class="stats" id="stats" style="display:none"></div>
+
+    <div class="filtros">
+      {% if e_supervisao %}
+        <select id="fProf"><option value="">Todos os professores</option>{% for p in professores %}<option>{{ p }}</option>{% endfor %}</select>
+      {% else %}
+        <input id="fProf" placeholder="Seu nome" value="{{ professor_atual }}">
+      {% endif %}
+      <select id="fDisc"><option value="">Todas as disciplinas</option>{% for d in disciplinas %}<option>{{ d }}</option>{% endfor %}</select>
+      <select id="fSerie"><option value="">Todas as séries</option>{% for s in series %}<option>{{ s }}</option>{% endfor %}</select>
+      <input id="fBusca" placeholder="Buscar tema…">
+      <button class="link" onclick="carregar()">Filtrar</button>
+    </div>
+
+    <div id="lista"><div class="vazio">Carregando…</div></div>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const SUP = {{ 'true' if e_supervisao else 'false' }};
+function esc(t){return String(t??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function fmt(dt){ if(!dt) return ''; const [d,h]=dt.split(' '); const [y,m,dd]=d.split('-'); return `${dd}/${m}/${y} ${h?h.slice(0,5):''}`; }
+
+async function carregar(){
+  const prof = $('fProf').value.trim();
+  if(!SUP){ localStorage.setItem('professor', prof);
+    await fetch('/api/sessao/professor',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({professor:prof})}); }
+  const q = new URLSearchParams({professor:prof, disciplina:$('fDisc').value, serie:$('fSerie').value, busca:$('fBusca').value.trim()});
+  const itens = await (await fetch('/api/historico?'+q)).json();
+  if(!itens.length){ $('lista').innerHTML='<div class="vazio">Nenhum plano encontrado.</div>'; $('stats').style.display='none'; return; }
+  if(SUP){
+    const vistos = itens.filter(i=>i.visto_em).length;
+    $('stats').style.display='flex';
+    $('stats').innerHTML = `<div class="stat"><b>${itens.length}</b>planos</div><div class="stat"><b>${vistos}</b>vistos pela supervisão</div><div class="stat"><b>${itens.length-vistos}</b>pendentes</div><div class="stat"><b>${new Set(itens.map(i=>i.professor.toLowerCase())).size}</b>professores</div>`;
+  }
+  $('lista').innerHTML = `<table><thead><tr>
+    <th>Gerado em</th><th>Professor(a)</th><th>Disciplina</th><th>Série</th><th>Tema</th><th>Semana</th>${SUP?'<th>Supervisão</th>':''}<th></th>
+  </tr></thead><tbody>${itens.map(i=>`<tr>
+    <td style="white-space:nowrap">${fmt(i.criado_em)}</td><td>${esc(i.professor)}</td><td>${esc(i.disciplina)}</td><td>${esc(i.serie)}</td>
+    <td>${esc(i.tema)}</td><td style="white-space:nowrap">${esc(i.data_ref)}</td>
+    ${SUP?`<td>${i.visto_em?`<span class="visto">✔ visto ${fmt(i.visto_em)}</span> <button class="acao" onclick="visto(${i.id},true)" title="desfazer">↩</button>`:`<button class="acao ok" onclick="visto(${i.id},false)">Marcar visto</button>`}</td>`:''}
+    <td style="white-space:nowrap"><a class="acao" href="/?id=${i.id}">Abrir</a><a class="acao" href="/api/historico/${i.id}/pdf">PDF</a><button class="acao red" onclick="excluir(${i.id})">Excluir</button></td>
+  </tr>`).join('')}</tbody></table>`;
+}
+async function excluir(id){ if(!confirm('Excluir este plano do histórico?')) return;
+  await fetch('/api/historico/'+id,{method:'DELETE'}); carregar(); }
+async function visto(id,desfazer){ await fetch(`/api/historico/${id}/visto`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({desfazer})}); carregar(); }
+if(!SUP && !$('fProf').value) $('fProf').value = localStorage.getItem('professor')||'';
+['fDisc','fSerie'].forEach(i=>$(i).addEventListener('change',carregar));
+$('fBusca').addEventListener('keydown',e=>{if(e.key==='Enter')carregar()});
+if(SUP) $('fProf').addEventListener('change',carregar);
+carregar();
+</script>
+</body>
+</html>

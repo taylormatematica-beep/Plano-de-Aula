@@ -63,7 +63,8 @@
   <div class="cfg">
     <span class="dot {% if ia_configurada %}on{% endif %}" id="dot"></span>
     <span id="cfgTxt">{% if ia_configurada %}IA ativa ({{ provider }} · {{ model }}){% else %}IA não configurada — modo demonstração{% endif %}</span>
-    <button class="link" onclick="abrirCfg()">⚙ Configurações</button>
+    <a class="link" href="/historico" style="text-decoration:none;color:inherit">🗂 Histórico</a>
+    {% if e_supervisao %}<button class="link" onclick="abrirCfg()">⚙ Configurações</button>{% endif %}
   </div>
 </header>
 
@@ -71,7 +72,10 @@
   <!-- FORMULÁRIO -->
   <section class="card form">
     <h1>Gerador de Plano de Aula</h1>
-    <p class="sub">Preencha os 4 campos e clique em <b>Gerar</b>. O restante do plano (habilidade da BNCC, objetivos, metodologia, recursos e avaliação) é preenchido automaticamente.</p>
+    <p class="sub">Preencha os campos com * e clique em <b>Gerar</b>. O restante do plano (habilidade da BNCC, objetivos, metodologia, recursos e avaliação) é preenchido automaticamente.</p>
+
+    <label for="professor">Professor(a) *</label>
+    <input id="professor" placeholder="Seu nome completo" autocomplete="name">
 
     <label for="disciplina">Matéria / Disciplina *</label>
     <select id="disciplina">
@@ -113,7 +117,9 @@
     <details style="margin-top:14px">
       <summary style="cursor:pointer;font-size:13px;color:var(--muted)">Campos opcionais (supervisão, observações)</summary>
       <label for="supervisao">Supervisão</label>
-      <input id="supervisao" placeholder="Nome do(a) supervisor(a) pedagógico(a)">
+      <input id="supervisao" placeholder="Nome do(a) supervisor(a) pedagógico(a)" value="{{ supervisao_nome }}">
+      <label for="direcao">Direção</label>
+      <input id="direcao" placeholder="Nome do(a) diretor(a)" value="{{ direcao_nome }}">
       <label for="observacoes">Observações para a IA</label>
       <textarea id="observacoes" placeholder="Ex.: turma com dificuldade em leitura; usar laboratório; incluir revisão para o ENEM…"></textarea>
     </details>
@@ -168,6 +174,22 @@
 <script>
 const $ = id => document.getElementById(id);
 let estado = null;
+$('professor').value = localStorage.getItem('professor') || '';
+(async () => {
+  const id = new URLSearchParams(location.search).get('id');
+  if (!id) return;
+  const r = await fetch('/api/historico/' + id);
+  if (!r.ok) return;
+  const it = await r.json();
+  estado = {id: it.id, dados: it.dados, plano: it.plano};
+  const d = it.dados;
+  $('professor').value = d.professor || $('professor').value;
+  $('conteudo').value = d.conteudo || ''; $('serie').value = d.serie || $('serie').value;
+  if ([...$('disciplina').options].some(o => o.value === d.disciplina)) $('disciplina').value = d.disciplina;
+  $('supervisao').value = d.supervisao || ''; $('direcao').value = d.direcao || '';
+  renderizar();
+  $('msg').innerHTML = '<div class="aviso">Plano carregado do histórico. Edite e baixe o PDF, ou clique em "Gerar novamente" para uma nova versão.</div>';
+})();
 
 $('disciplina').addEventListener('change', e => {
   $('disciplinaOutra').style.display = e.target.value === '__outra' ? 'block' : 'none';
@@ -179,6 +201,7 @@ function coletar(){
   let disc = $('disciplina').value;
   if (disc === '__outra') disc = $('disciplinaOutra').value.trim();
   return {
+    professor: $('professor').value.trim(), direcao: $('direcao').value.trim(),
     disciplina: disc, conteudo: $('conteudo').value.trim(), data: $('data').value,
     data_fim: $('dataFim').value, serie: $('serie').value, aulas: $('aulas').value,
     supervisao: $('supervisao').value.trim(), observacoes: $('observacoes').value.trim()
@@ -188,9 +211,10 @@ function coletar(){
 async function gerar(){
   const d = coletar();
   $('msg').innerHTML = '';
-  if (!d.disciplina || !d.conteudo || !d.data || !d.serie){
-    $('msg').innerHTML = '<div class="erro">Preencha matéria, conteúdo, data e série.</div>'; return;
+  if (!d.professor || !d.disciplina || !d.conteudo || !d.data || !d.serie){
+    $('msg').innerHTML = '<div class="erro">Preencha seu nome, matéria, conteúdo, data e série.</div>'; return;
   }
+  localStorage.setItem('professor', d.professor);
   const b = $('btnGerar'); b.disabled = true;
   b.innerHTML = '<span class="spinner"></span> Gerando com IA… (10–30 s)';
   try{
@@ -226,6 +250,9 @@ function renderizar(){
     </table>
     <table>${bloco('RECURSOS DIDÁTICOS:','recursos',50)}</table>
     <table>${bloco('AVALIAÇÃO:','avaliacao',50)}</table>
+    <table style="border:none;margin-top:28px"><tr>
+      ${['Professor(a)|professor','Supervisão Pedagógica|supervisao','Direção|direcao'].map(x=>{const [t,c]=x.split('|');return `<td style="border:none;text-align:center;font-size:11px;padding:0 6px">______________________________<br><b>${t}</b><br><span class="ed inline" contenteditable="true" data-dado="${c}">${esc(d[c]||'')}</span><br>Data: ____/____/______</td>`}).join('')}
+    </tr></table>
   </div>`;
   $('acoes').style.display='flex'; $('dica').style.display='block';
 }
@@ -251,9 +278,9 @@ async function baixarPdf(){
 function provChange(){
   const g = $('cProv').value === 'gemini';
   $('cBaseWrap').style.display = g ? 'none':'block';
-  if(!$('cModel').value || ['gpt-4o-mini','gemini-1.5-flash'].includes($('cModel').value))
-    $('cModel').value = g ? 'gemini-1.5-flash' : 'gpt-4o-mini';
-  $('cModel').placeholder = g ? 'gemini-1.5-flash' : 'gpt-4o-mini';
+  if(!$('cModel').value || ['gpt-4o-mini','gemini-3.8-flash'].includes($('cModel').value))
+    $('cModel').value = g ? 'gemini-3.8-flash' : 'gpt-4o-mini';
+  $('cModel').placeholder = g ? 'gemini-3.8-flash' : 'gpt-4o-mini';
 }
 async function abrirCfg(){
   const c = await (await fetch('/api/config')).json();
