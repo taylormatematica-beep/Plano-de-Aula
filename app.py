@@ -27,10 +27,21 @@ app.config["JSON_AS_ASCII"] = False
 import os, hmac  # noqa: E402
 from flask import redirect, session, url_for  # noqa: E402
 
-APP_SENHA = os.getenv("APP_SENHA", "").strip()
-SUPERVISAO_SENHA = os.getenv("SUPERVISAO_SENHA", "").strip()   # libera a área da supervisão
-DIRECAO_NOME = os.getenv("DIRECAO_NOME", "").strip()           # nome impresso no campo Direção
-SUPERVISAO_NOME = os.getenv("SUPERVISAO_NOME", "").strip()     # nome padrão da supervisão
+def _env(nome: str) -> str:
+    """Lê variável de ambiente removendo espaços e aspas acidentais."""
+    return os.getenv(nome, "").strip().strip('"').strip("'").strip()
+
+
+def _senha_confere(digitada: str, correta: str) -> bool:
+    if not correta:
+        return False
+    return hmac.compare_digest(digitada.strip().encode("utf-8"), correta.encode("utf-8"))
+
+
+APP_SENHA = _env("APP_SENHA")
+SUPERVISAO_SENHA = _env("SUPERVISAO_SENHA")   # libera a área da supervisão
+DIRECAO_NOME = _env("DIRECAO_NOME")           # nome impresso no campo Direção
+SUPERVISAO_NOME = _env("SUPERVISAO_NOME")     # nome padrão da supervisão
 app.secret_key = os.getenv("SECRET_KEY") or (APP_SENHA + "-plano-bernardes") or os.urandom(24)
 
 LOGIN_HTML = """<!doctype html><html lang=pt-BR><meta charset=utf-8><title>Acesso — Plano de Aula</title>
@@ -58,7 +69,7 @@ def _exigir_senha():
 def login():
     erro = ""
     if request.method == "POST":
-        if hmac.compare_digest(request.form.get("senha", ""), APP_SENHA):
+        if _senha_confere(request.form.get("senha", ""), APP_SENHA):
             session["ok"] = True
             return redirect("/")
         erro = "<p class=e>Senha incorreta.</p>"
@@ -73,10 +84,13 @@ def _e_supervisao() -> bool:
 def sup_login():
     erro = ""
     if request.method == "POST":
-        if SUPERVISAO_SENHA and hmac.compare_digest(request.form.get("senha", ""), SUPERVISAO_SENHA):
+        if _senha_confere(request.form.get("senha", ""), SUPERVISAO_SENHA):
             session["sup"] = True
             return redirect("/historico")
         erro = "<p class=e>Senha incorreta.</p>"
+    if not SUPERVISAO_SENHA:
+        erro = ("<p class=e>A variável SUPERVISAO_SENHA não está definida no servidor. "
+                "Crie-a em Render → Environment e aguarde o redeploy.</p>")
     html = LOGIN_HTML.replace("Informe a senha de acesso dos professores.", "Área da supervisão — informe a senha da supervisão.")
     return html.replace("{erro}", erro)
 
@@ -85,6 +99,30 @@ def sup_login():
 def sup_sair():
     session.pop("sup", None)
     return redirect("/historico")
+
+
+@app.route("/diagnostico")
+def diagnostico():
+    def info_senha(v: str) -> str:
+        if not v:
+            return "❌ NÃO definida"
+        return f"✅ definida — {len(v)} caracteres, começa com «{v[0]}» e termina com «{v[-1]}»"
+    cfg = carregar_config()
+    linhas = {
+        "APP_SENHA (professores)": info_senha(APP_SENHA),
+        "SUPERVISAO_SENHA": info_senha(SUPERVISAO_SENHA),
+        "SUPERVISAO_NOME": SUPERVISAO_NOME or "❌ vazio",
+        "DIRECAO_NOME": DIRECAO_NOME or "❌ vazio",
+        "DATABASE_URL": "✅ PostgreSQL" if db.USA_PG else "⚠️ não definida (usando SQLite local — histórico some a cada deploy no Render)",
+        "IA": f"{cfg['provider']} · {cfg['model']} · chave {'✅' if cfg['api_key'] else '❌'}",
+        "Sessão atual": f"professor logado: {'sim' if session.get('ok') or not APP_SENHA else 'não'} · supervisão: {'sim' if session.get('sup') else 'não'}",
+    }
+    html = "".join(f"<tr><td style='padding:6px 12px;font-weight:600'>{k}</td><td style='padding:6px 12px'>{v}</td></tr>" for k, v in linhas.items())
+    return (f"<!doctype html><meta charset=utf-8><title>Diagnóstico</title>"
+            f"<body style='font-family:Segoe UI,Arial;padding:24px'><h2>Diagnóstico do servidor</h2>"
+            f"<table style='border-collapse:collapse;background:#f6f6f8;border-radius:8px'>{html}</table>"
+            f"<p style='color:#666;font-size:13px'>Se uma senha aparece com tamanho diferente do esperado, "
+            f"verifique espaços ou aspas no valor da variável no Render.</p><p><a href='/'>← voltar</a></p>")
 
 
 @app.route("/sair")
