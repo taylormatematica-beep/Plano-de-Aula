@@ -14,6 +14,7 @@ Configuração (variáveis de ambiente ou arquivo config.json ao lado deste arqu
 import json
 import os
 import re
+import time
 from pathlib import Path
 
 import requests
@@ -133,12 +134,22 @@ def _chamar_openai(cfg: dict, prompt: str) -> str:
 GEMINI_FALLBACKS = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash", "gemini-2.5-flash-lite"]
 MODELOS_GEMINI_DESCONTINUADOS = {"gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.5-flash-8b",
                                  "gemini-1.5-flash-latest", "gemini-1.5-pro-latest", "gemini-pro"}
+TENTATIVAS_POR_MODELO = 3          # novas tentativas quando o Google responde 500/503 (sobrecarga)
+ESPERA_ENTRE_TENTATIVAS = (3, 6, 10)  # segundos
 
 
 def _gemini_request(model: str, api_key: str, body: dict) -> requests.Response:
-    url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-           f"{model}:generateContent?key={api_key}")
-    return requests.post(url, json=body, timeout=120)
+    # A chave vai no cabeçalho (e NÃO na URL) para nunca aparecer em mensagens de erro/logs.
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
+    return requests.post(url, headers=headers, json=body, timeout=120)
+
+
+def _msg_erro_google(r: requests.Response) -> str:
+    try:
+        return r.json().get("error", {}).get("message", "") or r.reason
+    except Exception:
+        return r.reason or ""
 
 
 def _chamar_gemini(cfg: dict, prompt: str) -> str:
@@ -152,21 +163,45 @@ def _chamar_gemini(cfg: dict, prompt: str) -> str:
         modelo = GEMINI_FALLBACKS[0]  # 1.5 foi desligado pelo Google em set/2025
     candidatos = [modelo] + [m for m in GEMINI_FALLBACKS if m != modelo]
 
-    ultimo_erro = None
+    erros = []
     for m in candidatos:
-        r = _gemini_request(m, cfg["api_key"], body)
-        if r.status_code == 404:          # modelo não existe mais -> tenta o próximo
-            ultimo_erro = f"modelo '{m}' não encontrado (404)"
-            continue
-        if r.status_code in (401, 403):
-            raise RuntimeError("Chave de API do Gemini inválida ou sem permissão. "
-                               "Gere outra em https://aistudio.google.com/app/apikey")
-        if r.status_code == 429:
-            raise RuntimeError("Limite de uso da API do Gemini atingido. Aguarde um minuto e tente novamente.")
-        r.raise_for_status()
-        return r.json()["candidates"][0]["content"]["parts"][0]["text"]
-    raise RuntimeError(f"Nenhum modelo Gemini disponível ({ultimo_erro}). "
-                       "Verifique o nome do modelo em Configurações (sugestão: gemini-2.5-flash).")
+        for tentativa in range(TENTATIVAS_POR_MODELO):
+            try:
+                r = _gemini_request(m, cfg["api_key"], body)
+            except requests.RequestException as e:
+                erros.append(f"{m}: falha de conexão ({type(e).__name__})")
+                time.sleep(ESPERA_ENTRE_TENTATIVAS[min(tentativa, 2)])
+                continue
+
+            if r.status_code == 200:
+                try:
+                    return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+                except (KeyError, IndexError):
+                    erros.append(f"{m}: resposta vazia (possível bloqueio de conteúdo)")
+                    break
+            if r.status_code == 404:                  # modelo não existe -> próximo modelo
+                erros.append(f"{m}: não encontrado (404)")
+                break
+            if r.status_code in (401, 403):
+                raise RuntimeError("Chave de API do Gemini inválida ou sem permissão. "
+                                   "Gere outra em https://aistudio.google.com/app/apikey "
+                                   "e atualize a variável AI_API_KEY.")
+            if r.status_code == 429:
+                erros.append(f"{m}: limite de uso (429)")
+                time.sleep(ESPERA_ENTRE_TENTATIVAS[min(tentativa, 2)])
+                continue
+            if r.status_code in (500, 502, 503, 504):  # sobrecarga do Google -> espera e repete
+                erros.append(f"{m}: servidor do Google indisponível ({r.status_code})")
+                time.sleep(ESPERA_ENTRE_TENTATIVAS[min(tentativa, 2)])
+                continue
+            # outros erros (400 etc.)
+            erros.append(f"{m}: {r.status_code} {_msg_erro_google(r)[:120]}")
+            break
+
+    raise RuntimeError(
+        "O serviço do Google Gemini está temporariamente indisponível ou sobrecarregado. "
+        "Aguarde 1–2 minutos e clique em Gerar novamente. Detalhes: " + "; ".join(erros[-4:])
+    )
 
 
 def _extrair_json(texto: str) -> dict:
