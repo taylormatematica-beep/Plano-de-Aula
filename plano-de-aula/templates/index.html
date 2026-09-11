@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gerador de Plano de Aula — Presidente Bernardes</title>
+<style>
+  :root{--preto:#111;--verm:#e10600;--cinza:#f4f4f5;--borda:#d9d9de;--txt:#222;--muted:#6b6b76}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI",Roboto,Arial,sans-serif;background:var(--cinza);color:var(--txt)}
+  header{background:#fff;border-bottom:3px solid var(--verm);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px}
+  header img{height:44px}
+  header .cfg{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:10px}
+  .dot{width:10px;height:10px;border-radius:50%;background:#c0c0c8;display:inline-block}
+  .dot.on{background:#1fa34a}
+  button.link{background:none;border:1px solid var(--borda);border-radius:6px;padding:6px 10px;cursor:pointer;font-size:13px}
+  main{max-width:1180px;margin:24px auto;padding:0 16px;display:grid;grid-template-columns:400px 1fr;gap:24px}
+  @media(max-width:900px){main{grid-template-columns:1fr}}
+  .card{background:#fff;border:1px solid var(--borda);border-radius:10px;padding:20px}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{font-size:13px;color:var(--muted);margin:0 0 18px}
+  label{display:block;font-size:13px;font-weight:600;margin:12px 0 4px}
+  input,select,textarea{width:100%;padding:9px 10px;border:1px solid var(--borda);border-radius:6px;font-size:14px;font-family:inherit;background:#fff}
+  textarea{min-height:70px;resize:vertical}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:none;border-radius:8px;padding:12px 18px;font-size:15px;font-weight:600;cursor:pointer;width:100%;margin-top:18px}
+  .btn.primary{background:var(--preto);color:#fff}
+  .btn.primary:hover{background:#000}
+  .btn.red{background:var(--verm);color:#fff}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.sec{background:#fff;border:1px solid var(--borda);color:var(--txt);width:auto;margin-top:0;padding:9px 14px;font-size:14px}
+  .aviso{background:#fff7e6;border:1px solid #f5d38a;color:#7a4b00;padding:10px 12px;border-radius:8px;font-size:13px;margin-top:14px}
+  .erro{background:#fdecec;border:1px solid #f3b4b4;color:#8a1111;padding:10px 12px;border-radius:8px;font-size:13px;margin-top:14px}
+  /* Pré-visualização */
+  .preview-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+  .preview-head h2{font-size:17px;margin:0}
+  .acoes{display:flex;gap:8px;flex-wrap:wrap}
+  .folha{border:1px solid var(--borda);padding:26px 30px;background:#fff;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#000}
+  .folha .logo{text-align:center;margin-bottom:10px}.folha .logo img{height:50px}
+  .folha .tit{text-align:center;font-weight:bold;font-size:16px;margin:8px 0 14px}
+  .folha table{width:100%;border-collapse:collapse;margin-bottom:12px}
+  .folha td{border:1px solid #000;padding:6px 8px;vertical-align:top}
+  .folha td b{font-weight:bold}
+  .folha td .ed{outline:none;min-height:18px;white-space:pre-wrap;margin-top:3px;padding:2px;border-radius:3px}
+  .folha td .ed:focus{background:#fffbe6}
+  .folha td .ed.inline{display:inline;margin:0}
+  .vazio{color:var(--muted);text-align:center;padding:60px 20px;font-size:15px}
+  .spinner{width:18px;height:18px;border:3px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:g .8s linear infinite}
+  @keyframes g{to{transform:rotate(360deg)}}
+  .dica{font-size:12px;color:var(--muted);margin-top:8px}
+  /* modal */
+  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:50}
+  .modal-bg.open{display:flex}
+  .modal{background:#fff;border-radius:12px;padding:22px;width:min(520px,94vw)}
+  .modal h3{margin:0 0 6px}
+  .modal .acoes{justify-content:flex-end;margin-top:16px}
+  @media print{header,.card.form,.preview-head,.dica{display:none}main{display:block;margin:0}.card{border:none;padding:0}.folha{border:none}}
+</style>
+</head>
+<body>
+<header>
+  <img src="{{ url_for('static', filename='logo.png') }}" alt="Presidente Bernardes – Ensino Médio Integral">
+  <div class="cfg">
+    <span class="dot {% if ia_configurada %}on{% endif %}" id="dot"></span>
+    <span id="cfgTxt">{% if ia_configurada %}IA ativa ({{ provider }} · {{ model }}){% else %}IA não configurada — modo demonstração{% endif %}</span>
+    <button class="link" onclick="abrirCfg()">⚙ Configurações</button>
+  </div>
+</header>
+
+<main>
+  <!-- FORMULÁRIO -->
+  <section class="card form">
+    <h1>Gerador de Plano de Aula</h1>
+    <p class="sub">Preencha os 4 campos e clique em <b>Gerar</b>. O restante do plano (habilidade da BNCC, objetivos, metodologia, recursos e avaliação) é preenchido automaticamente.</p>
+
+    <label for="disciplina">Matéria / Disciplina *</label>
+    <select id="disciplina">
+      <option value="">Selecione…</option>
+      {% for d in disciplinas %}<option>{{ d }}</option>{% endfor %}
+      <option value="__outra">Outra…</option>
+    </select>
+    <input id="disciplinaOutra" placeholder="Digite a disciplina" style="display:none;margin-top:6px">
+
+    <label for="conteudo">Conteúdo / Tema da semana *</label>
+    <textarea id="conteudo" placeholder="Ex.: Função quadrática – gráfico, vértice e raízes"></textarea>
+
+    <div class="row">
+      <div>
+        <label for="data">Data de referência *</label>
+        <input type="date" id="data" value="{{ hoje }}">
+      </div>
+      <div>
+        <label for="dataFim">até (opcional)</label>
+        <input type="date" id="dataFim">
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label for="serie">Série / Turma *</label>
+        <select id="serie">
+          {% for s in series %}<option {% if loop.last %}selected{% endif %}>{{ s }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="aulas">Aulas na semana</label>
+        <select id="aulas">
+          <option>1</option><option selected>2</option><option>3</option><option>4</option><option>5</option><option>6</option>
+        </select>
+      </div>
+    </div>
+
+    <details style="margin-top:14px">
+      <summary style="cursor:pointer;font-size:13px;color:var(--muted)">Campos opcionais (supervisão, observações)</summary>
+      <label for="supervisao">Supervisão</label>
+      <input id="supervisao" placeholder="Nome do(a) supervisor(a) pedagógico(a)">
+      <label for="observacoes">Observações para a IA</label>
+      <textarea id="observacoes" placeholder="Ex.: turma com dificuldade em leitura; usar laboratório; incluir revisão para o ENEM…"></textarea>
+    </details>
+
+    <button class="btn primary" id="btnGerar" onclick="gerar()">✨ Gerar plano de aula</button>
+    <div id="msg"></div>
+    {% if not ia_configurada %}
+    <div class="aviso">⚠ Nenhuma chave de IA configurada. O plano será gerado em <b>modo demonstração</b> (texto genérico). Clique em <b>⚙ Configurações</b> para ativar a IA.</div>
+    {% endif %}
+  </section>
+
+  <!-- PRÉ-VISUALIZAÇÃO -->
+  <section class="card">
+    <div class="preview-head">
+      <h2>Pré-visualização</h2>
+      <div class="acoes" id="acoes" style="display:none">
+        <button class="btn sec" onclick="gerar()">🔄 Gerar novamente</button>
+        <button class="btn sec red" style="color:#fff;border-color:var(--verm)" onclick="baixarPdf()">⬇ Baixar PDF</button>
+      </div>
+    </div>
+    <div id="preview"><div class="vazio">O plano aparecerá aqui.<br>Você poderá clicar em qualquer texto para ajustá-lo antes de baixar o PDF.</div></div>
+    <p class="dica" id="dica" style="display:none">💡 Clique sobre qualquer texto do plano para editar. As edições são levadas para o PDF.</p>
+  </section>
+</main>
+
+<!-- MODAL CONFIG -->
+<div class="modal-bg" id="modal">
+  <div class="modal">
+    <h3>Configurações da IA</h3>
+    <p class="sub">Feito uma vez pela coordenação; os professores não precisam mexer aqui.</p>
+    <label>Provedor</label>
+    <select id="cProv" onchange="provChange()">
+      <option value="openai">OpenAI (ChatGPT) ou API compatível</option>
+      <option value="gemini">Google Gemini</option>
+    </select>
+    <label>Chave da API</label>
+    <input id="cKey" type="password" placeholder="Cole a chave aqui">
+    <div class="dica" id="cKeyInfo"></div>
+    <label>Modelo</label>
+    <input id="cModel" placeholder="gpt-4o-mini">
+    <div id="cBaseWrap">
+      <label>URL base (opcional — para Groq, OpenRouter, Ollama…)</label>
+      <input id="cBase" placeholder="https://api.openai.com/v1">
+    </div>
+    <div class="acoes">
+      <button class="btn sec" onclick="fecharCfg()">Cancelar</button>
+      <button class="btn sec" style="background:var(--preto);color:#fff" onclick="salvarCfg()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let estado = null;
+
+$('disciplina').addEventListener('change', e => {
+  $('disciplinaOutra').style.display = e.target.value === '__outra' ? 'block' : 'none';
+});
+
+function esc(t){return String(t??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function coletar(){
+  let disc = $('disciplina').value;
+  if (disc === '__outra') disc = $('disciplinaOutra').value.trim();
+  return {
+    disciplina: disc, conteudo: $('conteudo').value.trim(), data: $('data').value,
+    data_fim: $('dataFim').value, serie: $('serie').value, aulas: $('aulas').value,
+    supervisao: $('supervisao').value.trim(), observacoes: $('observacoes').value.trim()
+  };
+}
+
+async function gerar(){
+  const d = coletar();
+  $('msg').innerHTML = '';
+  if (!d.disciplina || !d.conteudo || !d.data || !d.serie){
+    $('msg').innerHTML = '<div class="erro">Preencha matéria, conteúdo, data e série.</div>'; return;
+  }
+  const b = $('btnGerar'); b.disabled = true;
+  b.innerHTML = '<span class="spinner"></span> Gerando com IA… (10–30 s)';
+  try{
+    const r = await fetch('/api/gerar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});
+    const j = await r.json();
+    if(!r.ok) throw new Error(j.erro || 'Erro desconhecido');
+    estado = j; renderizar();
+    if (j.plano._demo) $('msg').innerHTML = '<div class="aviso">Gerado em modo demonstração. Configure a IA para textos específicos do conteúdo.</div>';
+  }catch(e){ $('msg').innerHTML = '<div class="erro">'+esc(e.message)+'</div>'; }
+  finally{ b.disabled=false; b.innerHTML='✨ Gerar plano de aula'; }
+}
+
+function bloco(label, campo, minh){
+  return `<tr><td><b>${label}</b><div class="ed" contenteditable="true" data-campo="${campo}" style="min-height:${minh||40}px">${esc(estado.plano[campo])}</div></td></tr>`;
+}
+function renderizar(){
+  const d = estado.dados, p = estado.plano;
+  $('preview').innerHTML = `
+  <div class="folha">
+    <div class="logo"><img src="/static/logo.png"></div>
+    <div class="tit">PLANO DE AULA</div>
+    <table>
+      <tr><td style="width:50%"><b>DISCIPLINA:</b> <span class="ed inline" contenteditable="true" data-dado="disciplina">${esc(d.disciplina)}</span></td>
+          <td><b>DATA DE REFERÊNCIA:</b> <span class="ed inline" contenteditable="true" data-dado="data">${esc(d.data)}</span></td></tr>
+      <tr><td><b>TURMA:</b> <span class="ed inline" contenteditable="true" data-dado="serie">${esc(d.serie)}</span></td>
+          <td><b>SUPERVISÃO:</b> <span class="ed inline" contenteditable="true" data-dado="supervisao">${esc(d.supervisao)}</span></td></tr>
+    </table>
+    <table>
+      <tr><td><b>TEMA:</b> <span class="ed inline" contenteditable="true" data-campo="tema">${esc(p.tema)}</span></td></tr>
+      ${bloco('HABILIDADE DO PLANO DE CURSO:','habilidade',70)}
+      ${bloco('OBJETIVO DA APRENDIZAGEM:','objetivo',70)}
+      ${bloco('METODOLOGIA (DESENVOLVIMENTO DA AULA):','metodologia',90)}
+    </table>
+    <table>${bloco('RECURSOS DIDÁTICOS:','recursos',50)}</table>
+    <table>${bloco('AVALIAÇÃO:','avaliacao',50)}</table>
+  </div>`;
+  $('acoes').style.display='flex'; $('dica').style.display='block';
+}
+
+function sincronizar(){
+  document.querySelectorAll('[data-campo]').forEach(el => estado.plano[el.dataset.campo] = el.innerText.trim());
+  document.querySelectorAll('[data-dado]').forEach(el => estado.dados[el.dataset.dado] = el.innerText.trim());
+}
+
+async function baixarPdf(){
+  if(!estado) return; sincronizar();
+  const r = await fetch('/api/pdf',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(estado)});
+  if(!r.ok){ alert('Erro ao gerar PDF'); return; }
+  const blob = await r.blob();
+  const cd = r.headers.get('Content-Disposition') || '';
+  const m = cd.match(/filename\*?=(?:UTF-8'')?"?([^";]+)/i);
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = m ? decodeURIComponent(m[1]) : 'plano-de-aula.pdf'; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+}
+
+/* ---- configurações ---- */
+function provChange(){
+  const g = $('cProv').value === 'gemini';
+  $('cBaseWrap').style.display = g ? 'none':'block';
+  if(!$('cModel').value || ['gpt-4o-mini','gemini-1.5-flash'].includes($('cModel').value))
+    $('cModel').value = g ? 'gemini-1.5-flash' : 'gpt-4o-mini';
+  $('cModel').placeholder = g ? 'gemini-1.5-flash' : 'gpt-4o-mini';
+}
+async function abrirCfg(){
+  const c = await (await fetch('/api/config')).json();
+  $('cProv').value = c.provider; $('cModel').value = c.model; $('cBase').value = c.base_url||'';
+  $('cKey').value=''; $('cKeyInfo').textContent = c.configurada ? 'Chave atual: '+c.api_key_mascarada+' (deixe em branco para manter)' : 'Nenhuma chave salva.';
+  provChange(); $('modal').classList.add('open');
+}
+function fecharCfg(){ $('modal').classList.remove('open'); }
+async function salvarCfg(){
+  const body = {provider:$('cProv').value, model:$('cModel').value, base_url:$('cBase').value, api_key:$('cKey').value};
+  const j = await (await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+  fecharCfg(); location.reload();
+}
+$('modal').addEventListener('click', e => { if(e.target===$('modal')) fecharCfg(); });
+</script>
+</body>
+</html>
