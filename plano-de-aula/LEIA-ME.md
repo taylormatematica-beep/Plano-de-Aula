@@ -14,7 +14,7 @@ Acesse: http://localhost:5000  (na rede da escola: http://IP-DO-COMPUTADOR:5000)
 ## 2. Ativar a IA (uma vez, pela coordenação)
 Clique em **⚙ Configurações** na tela e informe:
 - **OpenAI**: chave em https://platform.openai.com/api-keys — modelo sugerido `gpt-4o-mini` (barato: ~R$0,01 por plano)
-- **Google Gemini**: chave gratuita em https://aistudio.google.com/app/apikey — modelo `gemini-1.5-flash`
+- **Google Gemini**: chave gratuita em https://aistudio.google.com/app/apikey — modelo `gemini-3.8-flash`
 - Também aceita Groq, OpenRouter, Ollama etc. (preencha a URL base)
 
 Alternativa: criar o arquivo `config.json` ou variáveis de ambiente
@@ -30,6 +30,9 @@ Sem chave, o sistema funciona em **modo demonstração** (textos genéricos).
 
 Campos opcionais: período (data final), nº de aulas na semana, supervisão e observações para a IA
 (ex.: "turma com dificuldade em leitura", "usar laboratório", "revisão ENEM").
+
+## Histórico e assinaturas
+Veja `ATUALIZACAO-HISTORICO.md` (banco de dados, senha da supervisão, nomes para assinatura).
 
 ## Estrutura
 - `app.py` — servidor web (Flask)

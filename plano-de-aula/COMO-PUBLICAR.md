@@ -23,7 +23,7 @@ Abaixo estão três caminhos — o primeiro é o mais simples e **gratuito**.
    | Nome | Valor |
    |---|---|
    | `AI_PROVIDER` | `gemini` |
-   | `AI_MODEL` | `gemini-1.5-flash` |
+   | `AI_MODEL` | `gemini-3.8-flash` |
    | `AI_API_KEY` | *(sua chave do Gemini)* |
    | `APP_SENHA` | *(senha para os professores)* |
    | `SECRET_KEY` | *(qualquer texto longo aleatório)* |

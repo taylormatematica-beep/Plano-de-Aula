@@ -11,6 +11,7 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.platypus import (Image, KeepTogether, Paragraph, SimpleDocTemplate,
                                 Spacer, Table, TableStyle)
+from reportlab.platypus.flowables import HRFlowable
 
 BASE_DIR = Path(__file__).parent
 LOGO = BASE_DIR / "static" / "logo.png"
@@ -107,7 +108,32 @@ def gerar_pdf(dados: dict, plano: dict) -> bytes:
 
     ava = Table([[_bloco("AVALIAÇÃO:", plano.get("avaliacao", ""), 2)]], colWidths=[largura])
     ava.setStyle(grade)
-    story += [KeepTogether(ava)]
+    story += [KeepTogether(ava), Spacer(1, 4 * mm)]
+
+    # Bloco de assinaturas: Professor(a) | Supervisão | Direção
+    st_ass = ParagraphStyle("ass", fontName=FONT, fontSize=9, leading=11, alignment=TA_CENTER)
+    st_ass_b = ParagraphStyle("assb", fontName=FONT_B, fontSize=9, leading=11, alignment=TA_CENTER)
+
+    def col_ass(titulo: str, nome: str):
+        return [
+            Spacer(1, 12 * mm),                       # espaço para assinar
+            HRFlowable(width="88%", thickness=0.7, color=colors.black, spaceAfter=2),
+            Paragraph(_esc(titulo), st_ass_b),
+            Paragraph(_esc(nome) if nome else "&nbsp;", st_ass),
+            Paragraph("Data: ____/____/______", st_ass),
+        ]
+
+    ass = Table([[
+        col_ass("Professor(a)", dados.get("professor", "")),
+        col_ass("Supervisão Pedagógica", dados.get("supervisao", "")),
+        col_ass("Direção", dados.get("direcao", "")),
+    ]], colWidths=[largura / 3] * 3)
+    ass.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ]))
+    story += [KeepTogether(ass)]
 
     def rodape(canvas, d):
         canvas.saveState()
