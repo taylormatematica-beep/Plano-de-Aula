@@ -1,4 +1,4 @@
-"""
+
 Módulo de geração do conteúdo pedagógico via IA.
 
 Suporta:
