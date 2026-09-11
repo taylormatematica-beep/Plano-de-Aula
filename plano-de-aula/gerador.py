@@ -1,4 +1,4 @@
-
+"""
 Módulo de geração do conteúdo pedagógico via IA.
 
 Suporta:
@@ -162,4 +162,92 @@ def _chamar_gemini(cfg: dict, prompt: str) -> str:
             raise RuntimeError("Chave de API do Gemini inválida ou sem permissão. "
                                "Gere outra em https://aistudio.google.com/app/apikey")
         if r.status_code == 429:
-            raise RuntimeError("Limite de uso da API do 
+            raise RuntimeError("Limite de uso da API do Gemini atingido. Aguarde um minuto e tente novamente.")
+        r.raise_for_status()
+        return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+    raise RuntimeError(f"Nenhum modelo Gemini disponível ({ultimo_erro}). "
+                       "Verifique o nome do modelo em Configurações (sugestão: gemini-2.5-flash).")
+
+
+def _extrair_json(texto: str) -> dict:
+    texto = texto.strip()
+    texto = re.sub(r"^```(?:json)?\s*|\s*```$", "", texto, flags=re.I | re.M).strip()
+    try:
+        return json.loads(texto)
+    except json.JSONDecodeError:
+        m = re.search(r"\{.*\}", texto, re.S)
+        if not m:
+            raise
+        return json.loads(m.group(0))
+
+
+def _limpar(txt) -> str:
+    if isinstance(txt, list):
+        txt = "\n".join(str(t) for t in txt)
+    txt = str(txt or "")
+    txt = re.sub(r"\*\*(.*?)\*\*", r"\1", txt)       # negrito markdown
+    txt = re.sub(r"^\s*[-*]\s+", "• ", txt, flags=re.M)  # marcadores markdown -> •
+    txt = re.sub(r"^#+\s*", "", txt, flags=re.M)
+    return txt.strip()
+
+
+# --------------------------------------------------------------------------- #
+# Modo demonstração (sem chave de API)
+# --------------------------------------------------------------------------- #
+def _demo(dados: dict) -> dict:
+    d = dados.get("disciplina", "").strip()
+    c = dados.get("conteudo", "").strip()
+    s = dados.get("serie", "").strip()
+    return {
+        "tema": c,
+        "habilidade": (
+            f"(Código BNCC) Habilidade do Ensino Médio relacionada a \"{c}\" na disciplina de {d}.\n"
+            "ATENÇÃO: modo demonstração — configure uma chave de IA em \"Configurações\" para que a "
+            "habilidade oficial da BNCC seja identificada automaticamente."
+        ),
+        "objetivo": (
+            f"• Compreender os conceitos fundamentais de {c}.\n"
+            f"• Analisar situações-problema envolvendo {c} no contexto do {s}.\n"
+            f"• Aplicar os conhecimentos sobre {c} em atividades práticas e contextualizadas.\n"
+            "• Desenvolver a argumentação e o trabalho colaborativo."
+        ),
+        "metodologia": (
+            "1º MOMENTO – Acolhida e problematização (10 min): levantamento dos conhecimentos prévios dos "
+            f"estudantes sobre {c} por meio de perguntas disparadoras e registro no quadro.\n"
+            "2º MOMENTO – Desenvolvimento (25 min): exposição dialogada do conteúdo com exemplos "
+            "contextualizados, leitura orientada do livro didático e resolução comentada de exemplos.\n"
+            "3º MOMENTO – Sistematização (15 min): atividade em duplas com exercícios de aplicação, "
+            "correção coletiva e síntese dos principais conceitos."
+        ),
+        "recursos": (
+            "• Quadro branco e pincel\n• Livro didático\n• Projetor multimídia / slides\n"
+            "• Material impresso (lista de exercícios)\n• Caderno do estudante"
+        ),
+        "avaliacao": (
+            "Avaliação processual e formativa, considerando: participação nas discussões, realização da "
+            "atividade em duplas, registro no caderno e domínio dos conceitos trabalhados. O retorno aos "
+            "estudantes será feito na correção coletiva e por meio de orientações individuais."
+        ),
+        "_demo": True,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Função principal
+# --------------------------------------------------------------------------- #
+def gerar_plano(dados: dict, overrides: dict | None = None) -> dict:
+    cfg = carregar_config(overrides)
+    if not cfg["api_key"]:
+        return _demo(dados)
+
+    prompt = montar_prompt(dados)
+    if cfg["provider"] == "gemini":
+        bruto = _chamar_gemini(cfg, prompt)
+    else:
+        bruto = _chamar_openai(cfg, prompt)
+
+    obj = _extrair_json(bruto)
+    resultado = {k: _limpar(obj.get(k, "")) for k in CAMPOS}
+    resultado["tema"] = _limpar(obj.get("tema") or dados.get("conteudo", ""))
+    resultado["_demo"] = False
+    return resultado
