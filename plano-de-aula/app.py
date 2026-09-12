@@ -43,6 +43,16 @@ SUPERVISAO_SENHA = _env("SUPERVISAO_SENHA")   # libera a área da supervisão
 DIRECAO_NOME = _env("DIRECAO_NOME")           # nome impresso no campo Direção
 SUPERVISAO_NOME = _env("SUPERVISAO_NOME")     # nome padrão da supervisão
 app.secret_key = os.getenv("SECRET_KEY") or (APP_SENHA + "-plano-bernardes") or os.urandom(24)
+app.config.update(
+    SESSION_COOKIE_NAME="planoaula_sessao",
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SECURE=bool(os.getenv("RENDER") or os.getenv("FORCE_HTTPS")),  # https no Render
+    PERMANENT_SESSION_LIFETIME=60 * 60 * 12,  # 12 horas
+)
+
+from werkzeug.middleware.proxy_fix import ProxyFix  # noqa: E402
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 LOGIN_HTML = """<!doctype html><html lang=pt-BR><meta charset=utf-8><title>Acesso — Plano de Aula</title>
 <style>body{font-family:Segoe UI,Arial,sans-serif;background:#f4f4f5;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
@@ -52,15 +62,22 @@ button{width:100%;padding:11px;background:#111;color:#fff;border:none;border-rad
 .e{color:#a00;font-size:13px}</style>
 <div class=c><img src="/static/logo.png"><h3 style="margin:6px 0">Gerador de Plano de Aula</h3>
 <p style="font-size:13px;color:#666">Informe a senha de acesso dos professores.</p>
-<form method=post><input type=password name=senha placeholder="Senha" autofocus>
-{erro}<button>Entrar</button></form></div>"""
+<form method=post action="{action}" autocomplete="off"><input type=password name="{campo}" placeholder="Senha" autofocus autocomplete="new-password">
+{erro}<button>Entrar</button></form>
+<p style="font-size:12px;margin-top:14px">{rodape}</p></div>"""
+
+
+def _pagina_login(titulo: str, action: str, campo: str, erro: str, rodape: str) -> str:
+    return (LOGIN_HTML.replace("Informe a senha de acesso dos professores.", titulo)
+            .replace("{action}", action).replace("{campo}", campo)
+            .replace("{erro}", erro).replace("{rodape}", rodape))
 
 
 @app.before_request
 def _exigir_senha():
     if not APP_SENHA:
         return None
-    if request.endpoint in ("login", "static") or session.get("ok"):
+    if request.endpoint in ("login", "sup_login", "static") or session.get("ok") or session.get("sup"):
         return None
     return redirect(url_for("login"))
 
@@ -70,10 +87,12 @@ def login():
     erro = ""
     if request.method == "POST":
         if _senha_confere(request.form.get("senha", ""), APP_SENHA):
+            session.permanent = True
             session["ok"] = True
             return redirect("/")
         erro = "<p class=e>Senha incorreta.</p>"
-    return LOGIN_HTML.replace("{erro}", erro)
+    rodape = '<a href="/supervisao/login">Área da supervisão</a>' if SUPERVISAO_SENHA else ""
+    return _pagina_login("Informe a senha de acesso dos professores.", "/login", "senha", erro, rodape)
 
 
 def _e_supervisao() -> bool:
@@ -85,14 +104,16 @@ def sup_login():
     erro = ""
     if request.method == "POST":
         if _senha_confere(request.form.get("senha", ""), SUPERVISAO_SENHA):
+            session.permanent = True
             session["sup"] = True
+            session["ok"] = True
             return redirect("/historico")
         erro = "<p class=e>Senha incorreta.</p>"
     if not SUPERVISAO_SENHA:
         erro = ("<p class=e>A variável SUPERVISAO_SENHA não está definida no servidor. "
                 "Crie-a em Render → Environment e aguarde o redeploy.</p>")
-    html = LOGIN_HTML.replace("Informe a senha de acesso dos professores.", "Área da supervisão — informe a senha da supervisão.")
-    return html.replace("{erro}", erro)
+    return _pagina_login("Área da supervisão — informe a senha da supervisão.",
+                         "/supervisao/login", "senha", erro, '<a href="/login">Acesso dos professores</a>')
 
 
 @app.route("/supervisao/sair")
