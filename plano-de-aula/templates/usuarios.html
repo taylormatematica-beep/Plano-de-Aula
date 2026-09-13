@@ -45,6 +45,7 @@
   <div class="card">
     <h1>Usuários</h1>
     <p class="sub">Cadastre os e-mails institucionais dos professores. Cada um recebe um link por e-mail para criar a própria senha.</p>
+    <p style="font-size:13px;margin:-6px 0 12px"><button class="sec" onclick="testarEmail()" style="font-size:13px;padding:6px 10px">✉ Enviar e-mail de teste para mim</button> <span id="tEmail" style="color:var(--muted)"></span></p>
     {% if not email_ok %}
     <div class="aviso">⚠ O envio de e-mail não está configurado (SMTP). Os cadastros funcionam, mas o <b>link de criação de senha aparecerá aqui na tela</b> para você repassar manualmente (WhatsApp etc.). Veja <b>USUARIOS-E-EMAIL.md</b> para configurar.</div>
     {% endif %}
@@ -102,6 +103,7 @@ async function adicionar(){
   $('resultado').innerHTML='<ul>'+j.map(x=>`<li>${x.status==='enviado'?'✅':x.status==='cadastrado'?'☑️':x.status==='link'?'⚠️':'❌'} <b>${esc(x.email)}</b> — ${esc(x.msg)}${x.link?`<br><code>${esc(x.link)}</code> <button class="acao" onclick="navigator.clipboard.writeText('${esc(x.link)}')">copiar</button>`:''}</li>`).join('')+'</ul>';
   $('emails').value=''; carregar();
 }
+async function testarEmail(){ $('tEmail').textContent='enviando…'; const r=await fetch('/api/email/teste',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}); const j=await r.json(); $('tEmail').textContent = r.ok ? '✅ enviado via '+j.modo+' — confira sua caixa de entrada (e spam).' : '❌ '+j.erro; }
 async function editar(id,c){ const r=await fetch('/api/usuarios/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)}); const j=await r.json(); if(!r.ok) alert(j.erro); carregar(); }
 async function excluir(id,email){ if(!confirm('Excluir o usuário '+email+'? Os planos dele no histórico são mantidos.')) return; const r=await fetch('/api/usuarios/'+id,{method:'DELETE'}); const j=await r.json(); if(!r.ok) alert(j.erro); carregar(); }
 async function reenviar(id,btn){ btn.disabled=true; const j=await (await fetch(`/api/usuarios/${id}/reenviar`,{method:'POST'})).json(); btn.disabled=false;
