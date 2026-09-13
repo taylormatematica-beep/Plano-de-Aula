@@ -60,7 +60,7 @@ LOGIN_HTML = """<!doctype html><html lang=pt-BR><meta charset=utf-8><title>Acess
 img{height:50px;margin-bottom:10px}input{width:100%;padding:10px;border:1px solid #d9d9de;border-radius:6px;font-size:15px;margin:12px 0;box-sizing:border-box}
 button{width:100%;padding:11px;background:#111;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer}
 .e{color:#a00;font-size:13px}</style>
-<div class=c><img src="/static/logo.png"><h3 style="margin:6px 0">Gerador de Plano de Aula</h3>
+<div class=c><img src="/static/logo.png"><h3 style="margin:6px 0">Assistente de Planos de Aula</h3>
 <p style="font-size:13px;color:#666">Informe a senha de acesso dos professores.</p>
 <form method=post action="{action}" autocomplete="off"><input type=password name="{campo}" placeholder="Senha" autofocus autocomplete="new-password">
 {erro}<button>Entrar</button></form>
@@ -341,5 +341,5 @@ def api_config():
 
 if __name__ == "__main__":
     porta = int(os.getenv("PORT", "5000"))
-    print(f"Gerador de Plano de Aula rodando em http://localhost:{porta}")
+    print(f"Assistente de Planos de Aula rodando em http://localhost:{porta}")
     app.run(host="0.0.0.0", port=porta, debug=False)
