@@ -46,3 +46,15 @@ Envio automático dos PDFs: veja `GOOGLE-DRIVE.md`.
 - `pdf.py` — montagem do PDF no layout da escola
 - `templates/index.html` — interface do professor
 - `static/logo.png` — logotipo extraído do modelo original
+
+## Fontes de pesquisa e Cadernos do ICE
+
+- A IA fundamenta cada plano na **BNCC (Ensino Médio)**, no **Currículo Referência de Minas Gerais** e nos
+  **princípios/metodologias da Escola da Escolha (ICE)** — Protagonismo, 4 Pilares, Pedagogia da Presença,
+  Educação Interdimensional, Metodologias de Êxito (Estudo Orientado, Tutoria, Práticas Experimentais, Eletivas…).
+- Todo plano traz um quadro **FONTES / REFERÊNCIAS** ao final (na tela e no PDF).
+- Em **📚 Referências** (`/biblioteca`) a supervisão pode **enviar os PDFs dos Cadernos do ICE** (ou qualquer
+  documento com texto selecionável). O texto é indexado; na hora de gerar, os trechos ligados ao tema da aula
+  são entregues à IA e citados nas fontes. Sem envio, o sistema usa uma síntese interna dos cadernos.
+- Na tela principal, "Fontes de pesquisa da IA" fica recolhido, com tudo marcado por padrão — o professor
+  continua preenchendo só os 4 campos.

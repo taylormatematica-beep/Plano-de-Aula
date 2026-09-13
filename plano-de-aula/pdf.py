@@ -108,7 +108,18 @@ def gerar_pdf(dados: dict, plano: dict) -> bytes:
 
     ava = Table([[_bloco("AVALIAÇÃO:", plano.get("avaliacao", ""), 2)]], colWidths=[largura])
     ava.setStyle(grade)
-    story += [KeepTogether(ava), Spacer(1, 4 * mm)]
+    story += [KeepTogether(ava), Spacer(1, 5 * mm)]
+
+    if (plano.get("fontes") or "").strip():
+        st_fonte = ParagraphStyle("fonte", parent=st_texto_ind, fontSize=9.5, leading=12)
+        flow = [Paragraph("FONTES / REFERÊNCIAS:", st_label)]
+        for l in plano["fontes"].split("\n"):
+            if l.strip():
+                flow.append(Paragraph(_esc(l.strip() if l.strip().startswith("•") else "• " + l.strip()), st_fonte))
+        flow.append(Spacer(1, 1 * mm))
+        fon = Table([[flow]], colWidths=[largura])
+        fon.setStyle(grade)
+        story += [KeepTogether(fon), Spacer(1, 4 * mm)]
 
     # Bloco de assinaturas: Professor(a) | Supervisão | Direção
     st_ass = ParagraphStyle("ass", fontName=FONT, fontSize=9, leading=11, alignment=TA_CENTER)

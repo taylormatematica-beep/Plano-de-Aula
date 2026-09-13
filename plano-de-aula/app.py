@@ -16,6 +16,7 @@ from pdf import gerar_pdf
 import db
 import drive
 import fuso
+import referencias
 
 db.init()
 
@@ -342,6 +343,8 @@ def index():
         e_supervisao=_e_supervisao(),
         drive_conectado=drive.conectado(),
         usuario=usuario_atual() or {"nome": session.get("professor", ""), "email": ""},
+        fontes=referencias.FONTES,
+        documentos=db.documentos_listar(somente_ativos=True),
     )
 
 
@@ -360,8 +363,17 @@ def api_gerar():
     dados["data"] = _formatar_data(dados["data"])
     if dados.get("data_fim"):
         dados["data"] = f"{dados['data']} a {_formatar_data(dados['data_fim'])}"
+    fontes_sel = dados.get("fontes") or ["bncc", "crmg", "ice"]
+    if isinstance(fontes_sel, str):
+        fontes_sel = [f for f in fontes_sel.split(",") if f]
+    doc_ids = [int(x) for x in (dados.get("documentos") or []) if str(x).isdigit()]
+    consulta = f"{dados.get('conteudo','')} {dados.get('disciplina','')}"
     try:
-        plano = gerar_plano(dados)
+        contexto, citacoes = referencias.montar_contexto(fontes_sel, doc_ids, consulta)
+    except Exception:  # noqa: BLE001
+        contexto, citacoes = "", []
+    try:
+        plano = gerar_plano(dados, contexto=contexto, citacoes=citacoes)
     except Exception as e:  # noqa: BLE001
         msg = re.sub(r"[?&]key=[^&\s)\]]+", "?key=***", str(e))  # nunca expor a chave
         return jsonify({"erro": f"Falha ao consultar a IA: {msg}"}), 502
@@ -680,6 +692,76 @@ def api_usuarios_reenviar(id_):
         return jsonify({"erro": "não encontrado"}), 404
     r = auth.solicitar_acesso(u["email"], _base_url())
     return jsonify(r)
+
+
+# ----------------------------------------------------------------------------
+# Biblioteca de referências (documentos do ICE etc.)
+# ----------------------------------------------------------------------------
+@app.route("/biblioteca")
+def biblioteca():
+    return render_template("biblioteca.html", e_supervisao=_e_supervisao(), usuario=usuario_atual(),
+                           fontes=referencias.FONTES)
+
+
+@app.route("/api/documentos")
+def api_documentos():
+    return jsonify(db.documentos_listar(somente_ativos=not _e_supervisao()))
+
+
+@app.route("/api/documentos", methods=["POST"])
+def api_documentos_criar():
+    if not _e_supervisao():
+        return jsonify({"erro": "Apenas a supervisão pode enviar documentos."}), 403
+    f = request.files.get("arquivo")
+    if not f or not f.filename:
+        return jsonify({"erro": "Selecione um arquivo PDF, DOCX ou TXT."}), 400
+    nome = f.filename
+    if not nome.lower().endswith((".pdf", ".docx", ".txt", ".md")):
+        return jsonify({"erro": "Formato não suportado. Use PDF, DOCX ou TXT."}), 400
+    conteudo = f.read()
+    if len(conteudo) > 40 * 1024 * 1024:
+        return jsonify({"erro": "Arquivo acima de 40 MB."}), 400
+    try:
+        texto = referencias.extrair_texto(nome, conteudo)
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"erro": f"Não foi possível ler o arquivo: {e}"}), 400
+    trechos = referencias.dividir_em_trechos(texto)
+    if not trechos:
+        return jsonify({"erro": "O arquivo não contém texto legível (pode ser um PDF só de imagens/escaneado)."}), 400
+    titulo = request.form.get("titulo", "").strip() or re.sub(r"\.[^.]+$", "", nome)
+    citacao = request.form.get("citacao", "").strip() or f"{titulo}."
+    categoria = request.form.get("categoria", "ICE").strip() or "ICE"
+    did = db.documento_criar(titulo, citacao, categoria, nome, len(conteudo), trechos)
+    return jsonify({"ok": True, "id": did, "n_trechos": len(trechos)})
+
+
+@app.route("/api/documentos/<int:id_>", methods=["PATCH"])
+def api_documentos_editar(id_):
+    if not _e_supervisao():
+        return jsonify({"erro": "sem permissão"}), 403
+    body = request.get_json(force=True) or {}
+    campos = {k: body[k] for k in ("titulo", "citacao", "categoria") if k in body}
+    if "ativo" in body:
+        campos["ativo"] = 1 if body["ativo"] else 0
+    db.documento_atualizar(id_, **campos)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/documentos/<int:id_>", methods=["DELETE"])
+def api_documentos_excluir(id_):
+    if not _e_supervisao():
+        return jsonify({"erro": "sem permissão"}), 403
+    db.documento_excluir(id_)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/documentos/buscar")
+def api_documentos_buscar():
+    """Pré-visualização: quais trechos seriam usados para um tema."""
+    q = request.args.get("q", "")
+    ids = [int(x) for x in request.args.get("ids", "").split(",") if x.isdigit()]
+    trechos = referencias.buscar_trechos(q, ids or None, limite=5)
+    return jsonify([{"titulo": t["titulo"], "texto": t["texto"][:400]} for t in trechos])
 
 
 @app.route("/api/sessao/professor", methods=["POST"])

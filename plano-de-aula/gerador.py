@@ -22,7 +22,7 @@ import requests
 BASE_DIR = Path(__file__).parent
 CONFIG_FILE = BASE_DIR / "config.json"
 
-CAMPOS = ["habilidade", "objetivo", "metodologia", "recursos", "avaliacao"]
+CAMPOS = ["habilidade", "objetivo", "metodologia", "recursos", "avaliacao", "fontes"]
 
 
 # --------------------------------------------------------------------------- #
@@ -68,6 +68,9 @@ Responda EXCLUSIVAMENTE com um objeto JSON válido, sem comentários, sem markdo
 
 USER_PROMPT = """Elabore o plano de aula semanal com os dados abaixo.
 
+REFERÊNCIAS QUE DEVEM FUNDAMENTAR O PLANO:
+{contexto}
+
 DISCIPLINA: {disciplina}
 CONTEÚDO/TEMA: {conteudo}
 TURMA: {serie} do Ensino Médio
@@ -93,11 +96,14 @@ Se houver mais de uma aula na semana, organize por "AULA 1", "AULA 2" etc., cada
 
 "avaliacao": descrição da avaliação processual e formativa: instrumentos (participação, atividade, produção, exercícios), critérios observados e como será feito o retorno ao aluno. 3 a 6 linhas.
 
+"fontes": lista das fontes efetivamente utilizadas para elaborar o plano, uma por linha, iniciadas com "• ", em formato de referência (ABNT simplificada). Inclua obrigatoriamente as referências listadas em REFERÊNCIAS acima que você usou (BNCC, Currículo Referência de MG, Cadernos do ICE, documentos da biblioteca — citando título e página quando houver "p. N" no trecho) e, além delas, o livro didático ou materiais que você sugerir na metodologia/recursos. Não invente documentos que não foram fornecidos; materiais genéricos podem ser indicados de forma genérica (ex.: "Livro didático adotado pela escola – capítulo sobre ...").
+
 Seja específico para o conteúdo informado: cite exemplos, exercícios, textos, experimentos ou situações concretas relacionadas ao tema. Não use marcadores markdown (**, #, -). Use apenas "• " para listas."""
 
 
-def montar_prompt(dados: dict) -> str:
+def montar_prompt(dados: dict, contexto: str = "") -> str:
     return USER_PROMPT.format(
+        contexto=contexto or "BNCC do Ensino Médio e Currículo Referência de Minas Gerais.",
         disciplina=dados.get("disciplina", "").strip(),
         conteudo=dados.get("conteudo", "").strip(),
         serie=dados.get("serie", "").strip(),
@@ -319,6 +325,7 @@ def _demo(dados: dict) -> dict:
             "atividade em duplas, registro no caderno e domínio dos conceitos trabalhados. O retorno aos "
             "estudantes será feito na correção coletiva e por meio de orientações individuais."
         ),
+        "fontes": "",
         "_demo": True,
     }
 
@@ -326,12 +333,15 @@ def _demo(dados: dict) -> dict:
 # --------------------------------------------------------------------------- #
 # Função principal
 # --------------------------------------------------------------------------- #
-def gerar_plano(dados: dict, overrides: dict | None = None) -> dict:
+def gerar_plano(dados: dict, overrides: dict | None = None, contexto: str = "",
+                citacoes: list[str] | None = None) -> dict:
     cfg = carregar_config(overrides)
     if not cfg["api_key"]:
-        return _demo(dados)
+        d = _demo(dados)
+        d["fontes"] = "\n".join("• " + c for c in (citacoes or []))
+        return d
 
-    prompt = montar_prompt(dados)
+    prompt = montar_prompt(dados, contexto)
     if cfg["provider"] == "gemini":
         bruto = _chamar_gemini(cfg, prompt)
     else:
@@ -340,5 +350,12 @@ def gerar_plano(dados: dict, overrides: dict | None = None) -> dict:
     obj = _extrair_json(bruto)
     resultado = {k: _limpar(obj.get(k, "")) for k in CAMPOS}
     resultado["tema"] = _limpar(obj.get("tema") or dados.get("conteudo", ""))
+    # garante que as referências fornecidas constem nas fontes
+    fontes = resultado.get("fontes", "")
+    for c in (citacoes or []):
+        chave = c.split(".")[0][:25].lower()
+        if chave and chave not in fontes.lower():
+            fontes = (fontes + "\n" if fontes else "") + "• " + c
+    resultado["fontes"] = fontes
     resultado["_demo"] = False
     return resultado

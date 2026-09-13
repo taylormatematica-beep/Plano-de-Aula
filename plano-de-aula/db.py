@@ -88,6 +88,24 @@ def init():
             usado_em    TEXT,
             criado_em   TEXT NOT NULL
         )""")
+        con.execute(f"""CREATE TABLE IF NOT EXISTS documentos (
+            id          {pk},
+            titulo      TEXT NOT NULL,
+            citacao     TEXT,
+            categoria   TEXT DEFAULT 'ICE',
+            arquivo     TEXT,
+            tamanho     INTEGER,
+            n_trechos   INTEGER DEFAULT 0,
+            ativo       INTEGER NOT NULL DEFAULT 1,
+            criado_em   TEXT NOT NULL
+        )""")
+        con.execute(f"""CREATE TABLE IF NOT EXISTS trechos (
+            id            {pk},
+            documento_id  INTEGER NOT NULL,
+            ordem         INTEGER NOT NULL,
+            texto         TEXT NOT NULL
+        )""")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_trechos_doc ON trechos(documento_id)")
     # colunas adicionadas depois da 1ª versão (migração leve)
     for col in ("drive_file_id", "drive_link", "drive_em", "professor_email"):
         try:
@@ -296,3 +314,56 @@ def token_usar(id_: int):
         # invalida outros tokens pendentes do mesmo usuário
         con.execute(_q("UPDATE tokens SET usado_em=? WHERE usado_em IS NULL AND usuario_id="
                        "(SELECT usuario_id FROM tokens WHERE id=?)"), (_agora(), id_))
+
+
+# ---------------------------------------------------------------- biblioteca de documentos
+def documento_criar(titulo: str, citacao: str, categoria: str, arquivo: str, tamanho: int, trechos: list[str]) -> int:
+    with conexao() as con:
+        cur = con.execute(_q("""INSERT INTO documentos (titulo, citacao, categoria, arquivo, tamanho, n_trechos, criado_em)
+                                VALUES (?,?,?,?,?,?,?) RETURNING id"""),
+                          (titulo.strip(), citacao.strip(), categoria, arquivo, tamanho, len(trechos), fuso.agora_txt()))
+        did = int(cur.fetchone()[0])
+        for i, t in enumerate(trechos):
+            con.execute(_q("INSERT INTO trechos (documento_id, ordem, texto) VALUES (?,?,?)"), (did, i, t))
+    return did
+
+
+def documentos_listar(somente_ativos: bool = False) -> list[dict]:
+    where = "WHERE ativo=1" if somente_ativos else ""
+    with conexao() as con:
+        return _linhas(con.execute(f"SELECT id, titulo, citacao, categoria, arquivo, tamanho, n_trechos, ativo, criado_em "
+                                   f"FROM documentos {where} ORDER BY categoria, titulo"))
+
+
+def documento_obter(id_: int) -> dict:
+    with conexao() as con:
+        rows = _linhas(con.execute(_q("SELECT * FROM documentos WHERE id=?"), (id_,)))
+    return rows[0] if rows else {}
+
+
+def documento_atualizar(id_: int, **campos):
+    permitidos = {"titulo", "citacao", "categoria", "ativo"}
+    campos = {k: v for k, v in campos.items() if k in permitidos}
+    if not campos:
+        return
+    sets = ", ".join(f"{k}=?" for k in campos)
+    with conexao() as con:
+        con.execute(_q(f"UPDATE documentos SET {sets} WHERE id=?"), (*campos.values(), id_))
+
+
+def documento_excluir(id_: int):
+    with conexao() as con:
+        con.execute(_q("DELETE FROM trechos WHERE documento_id=?"), (id_,))
+        con.execute(_q("DELETE FROM documentos WHERE id=?"), (id_,))
+
+
+def trechos_listar(doc_ids: list[int] | None) -> list[dict]:
+    with conexao() as con:
+        if doc_ids:
+            marcas = ",".join("?" for _ in doc_ids)
+            sql = _q(f"""SELECT t.id, t.documento_id, t.texto, d.titulo FROM trechos t
+                         JOIN documentos d ON d.id=t.documento_id
+                         WHERE d.ativo=1 AND t.documento_id IN ({marcas})""")
+            return _linhas(con.execute(sql, tuple(doc_ids)))
+        return _linhas(con.execute("""SELECT t.id, t.documento_id, t.texto, d.titulo FROM trechos t
+                                      JOIN documentos d ON d.id=t.documento_id WHERE d.ativo=1"""))
