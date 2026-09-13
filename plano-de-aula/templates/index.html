@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Assistente de Planos de Aula — Presidente Bernardes</title>
+<title>Assistente de Plano de Aula — Presidente Bernardes</title>
 <style>
   :root{--preto:#111;--verm:#e10600;--cinza:#f4f4f5;--borda:#d9d9de;--txt:#222;--muted:#6b6b76}
   *{box-sizing:border-box}
@@ -13,6 +13,10 @@
   header .cfg{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:10px}
   .dot{width:10px;height:10px;border-radius:50%;background:#c0c0c8;display:inline-block}
   .dot.on{background:#1fa34a}
+  .badge-drive{font-size:12px;padding:3px 9px;border-radius:12px;background:#e8f1fd;color:#1a56b8;border:1px solid #bcd3f5}
+  .drive-box{border:1px solid var(--borda);border-radius:8px;padding:12px;margin-top:14px;background:#fafafa;font-size:13px}
+  .drive-box h4{margin:0 0 8px;font-size:14px}
+  .ok{color:#186a30}.warn{color:#7a4b00}
   button.link{background:none;border:1px solid var(--borda);border-radius:6px;padding:6px 10px;cursor:pointer;font-size:13px}
   main{max-width:1180px;margin:24px auto;padding:0 16px;display:grid;grid-template-columns:400px 1fr;gap:24px}
   @media(max-width:900px){main{grid-template-columns:1fr}}
@@ -63,19 +67,22 @@
   <div class="cfg">
     <span class="dot {% if ia_configurada %}on{% endif %}" id="dot"></span>
     <span id="cfgTxt">{% if ia_configurada %}IA ativa ({{ provider }} · {{ model }}){% else %}IA não configurada — modo demonstração{% endif %}</span>
+    {% if drive_conectado %}<span class="badge-drive" title="Os PDFs são salvos automaticamente no Google Drive da escola">▲ Drive conectado</span>{% endif %}
     <a class="link" href="/historico" style="text-decoration:none;color:inherit">🗂 Histórico</a>
-    {% if e_supervisao %}<button class="link" onclick="abrirCfg()">⚙ Configurações</button>{% endif %}
+    {% if e_supervisao %}<a class="link" href="/usuarios" style="text-decoration:none;color:inherit">👥 Usuários</a><button class="link" onclick="abrirCfg()">⚙ Configurações</button>{% endif %}
+    {% if usuario and usuario.email %}<a class="link" href="/conta" style="text-decoration:none;color:inherit" title="{{ usuario.email }}">👤 {{ usuario.nome or usuario.email }}</a>{% endif %}
+    <a class="link" href="/sair" style="text-decoration:none;color:inherit">Sair</a>
   </div>
 </header>
 
 <main>
   <!-- FORMULÁRIO -->
   <section class="card form">
-    <h1>Assistente de Planos de Aula</h1>
+    <h1>Assistente de Plano de Aula</h1>
     <p class="sub">Preencha os campos com * e clique em <b>Gerar</b>. O restante do plano (habilidade da BNCC, objetivos, metodologia, recursos e avaliação) é preenchido automaticamente.</p>
 
-    <label for="professor">Professor(a) *</label>
-    <input id="professor" placeholder="Seu nome completo" autocomplete="name">
+    <label for="professor">Professor(a)</label>
+    <input id="professor" value="{{ usuario.nome if usuario else '' }}" {% if usuario and usuario.email %}readonly style="background:#f4f4f5;color:#555" title="Para alterar o nome, use Minha conta"{% else %}placeholder="Seu nome completo"{% endif %}>
 
     <label for="disciplina">Matéria / Disciplina *</label>
     <select id="disciplina">
@@ -164,6 +171,11 @@
       <label>URL base (opcional — para Groq, OpenRouter, Ollama…)</label>
       <input id="cBase" placeholder="https://api.openai.com/v1">
     </div>
+    <div class="drive-box" id="driveBox">
+      <h4>▲ Google Drive</h4>
+      <div id="driveInfo">Carregando…</div>
+    </div>
+
     <div class="acoes">
       <button class="btn sec" onclick="fecharCfg()">Cancelar</button>
       <button class="btn sec" style="background:var(--preto);color:#fff" onclick="salvarCfg()">Salvar</button>
@@ -174,7 +186,7 @@
 <script>
 const $ = id => document.getElementById(id);
 let estado = null;
-$('professor').value = localStorage.getItem('professor') || '';
+if(!$('professor').value) $('professor').value = localStorage.getItem('professor') || '';
 (async () => {
   const id = new URLSearchParams(location.search).get('id');
   if (!id) return;
@@ -220,6 +232,7 @@ async function gerar(){
   try{
     const r = await fetch('/api/gerar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});
     const j = await r.json();
+    if(r.status===401){ location.href='/login?next=/'; return; }
     if(!r.ok) throw new Error(j.erro || 'Erro desconhecido');
     estado = j; renderizar();
     if (j.plano._demo) $('msg').innerHTML = '<div class="aviso">Gerado em modo demonstração. Configure a IA para textos específicos do conteúdo.</div>';
@@ -267,6 +280,9 @@ async function baixarPdf(){
   const r = await fetch('/api/pdf',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(estado)});
   if(!r.ok){ alert('Erro ao gerar PDF'); return; }
   const blob = await r.blob();
+  const dl = r.headers.get('X-Drive-Link'), de = r.headers.get('X-Drive-Erro');
+  if(dl) $('msg').innerHTML = `<div class="aviso" style="background:#e8f1fd;border-color:#bcd3f5;color:#1a56b8">▲ PDF salvo no Google Drive da escola. <a href="${esc(dl)}" target="_blank">Abrir no Drive</a></div>`;
+  else if(de) $('msg').innerHTML = `<div class="aviso">PDF baixado, mas não foi possível salvar no Drive: ${esc(de)}</div>`;
   const cd = r.headers.get('Content-Disposition') || '';
   const m = cd.match(/filename\*?=(?:UTF-8'')?"?([^";]+)/i);
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
@@ -287,7 +303,46 @@ async function abrirCfg(){
   $('cProv').value = c.provider; $('cModel').value = c.model; $('cBase').value = c.base_url||'';
   $('cKey').value=''; $('cKeyInfo').textContent = c.configurada ? 'Chave atual: '+c.api_key_mascarada+' (deixe em branco para manter)' : 'Nenhuma chave salva.';
   provChange(); $('modal').classList.add('open');
+  carregarDrive();
 }
+async function carregarDrive(){
+  const st = await (await fetch('/api/drive/status')).json();
+  let h = '';
+  if(!st.credenciais){
+    h = `<p class="warn">⚠ Credenciais do Google não configuradas no servidor.</p>
+         <p>Defina <code>GOOGLE_CLIENT_ID</code> e <code>GOOGLE_CLIENT_SECRET</code> no Render (veja <b>GOOGLE-DRIVE.md</b>).<br>
+         URI de redirecionamento a cadastrar no Google Cloud:<br><code style="user-select:all">${esc(st.redirect_uri)}</code></p>`;
+  } else if(!st.conectado){
+    h = `<p>Conecte a conta Google da escola para que os PDFs sejam salvos automaticamente no Drive.</p>
+         <a class="btn sec" href="/drive/conectar" style="display:inline-flex;background:#1a56b8;color:#fff;border-color:#1a56b8">Conectar Google Drive</a>
+         <p class="dica">URI de redirecionamento cadastrada no Google Cloud deve ser exatamente:<br><code style="user-select:all">${esc(st.redirect_uri)}</code></p>`;
+  } else {
+    h = `<p class="ok">✔ Conectado como <b>${esc(st.conta||'conta Google')}</b></p>
+         <p>Pasta raiz: <a href="${esc(st.pasta_raiz_link)}" target="_blank"><b>${esc(st.pasta_raiz_nome)}</b></a> → Ano → Série → Disciplina</p>
+         <label style="margin-top:6px">Trocar pasta raiz (nome novo ou link de uma pasta existente)</label>
+         <div style="display:flex;gap:6px"><input id="drivePasta" placeholder="Ex.: Planos de Aula 2026 ou https://drive.google.com/drive/folders/..."><button class="link" onclick="salvarPastaDrive()">Aplicar</button></div>
+         <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-weight:500"><input type="checkbox" id="driveAuto" ${st.auto?'checked':''} onchange="autoDrive()" style="width:auto">Enviar automaticamente ao baixar o PDF</label>
+         <button class="link" style="margin-top:10px;color:var(--verm)" onclick="desconectarDrive()">Desconectar</button>`;
+  }
+  $('driveInfo').innerHTML = h;
+}
+async function salvarPastaDrive(){
+  const r = await fetch('/api/drive/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pasta:$('drivePasta').value})});
+  const j = await r.json(); if(!r.ok){alert(j.erro);return;} carregarDrive();
+}
+async function autoDrive(){
+  await fetch('/api/drive/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({auto:$('driveAuto').checked})});
+}
+async function desconectarDrive(){
+  if(!confirm('Desconectar o Google Drive? Os PDFs deixarão de ser enviados automaticamente.')) return;
+  await fetch('/api/drive/desconectar',{method:'POST'}); carregarDrive();
+}
+(() => { if(new URLSearchParams(location.search).get('bemvindo')){ $('msg').innerHTML='<div class="aviso" style="background:#e8f5ec;border-color:#bfe3c9;color:#186a30">✔ Senha criada! Bem-vindo(a). Preencha os campos ao lado para gerar seu primeiro plano.</div>'; history.replaceState({},'','/'); } })();
+// mensagem após retorno do Google
+(() => { const q = new URLSearchParams(location.search);
+  if(q.get('drive')==='ok'){ $('msg').innerHTML='<div class="aviso" style="background:#e8f5ec;border-color:#bfe3c9;color:#186a30">✔ Google Drive conectado com sucesso! Os PDFs passarão a ser salvos automaticamente.</div>'; history.replaceState({},'', '/'); }
+  if(q.get('drive')==='erro'){ $('msg').innerHTML='<div class="erro">Conexão com o Google Drive cancelada ou negada ('+esc(q.get('msg')||'')+').</div>'; history.replaceState({},'', '/'); }
+})();
 function fecharCfg(){ $('modal').classList.remove('open'); }
 async function salvarCfg(){
   const body = {provider:$('cProv').value, model:$('cModel').value, base_url:$('cBase').value, api_key:$('cKey').value};

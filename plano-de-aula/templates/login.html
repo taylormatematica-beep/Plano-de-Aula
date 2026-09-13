@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Acesso — Assistente de Plano de Aula</title>
+<style>
+  body{font-family:"Segoe UI",Roboto,Arial,sans-serif;background:#f4f4f5;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;color:#222}
+  .c{background:#fff;border:1px solid #d9d9de;border-top:4px solid #e10600;border-radius:12px;padding:28px;width:min(400px,92vw)}
+  .logo{text-align:center}.logo img{height:50px;margin-bottom:6px}
+  h3{margin:6px 0 2px;text-align:center;font-size:18px}
+  .sub{font-size:13px;color:#666;text-align:center;margin:0 0 16px}
+  label{display:block;font-size:13px;font-weight:600;margin:12px 0 4px}
+  input[type=email],input[type=password],input[type=text]{width:100%;padding:10px;border:1px solid #d9d9de;border-radius:6px;font-size:15px;box-sizing:border-box}
+  button{width:100%;padding:11px;background:#111;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;margin-top:16px}
+  button:hover{background:#000}
+  .e{background:#fdecec;border:1px solid #f3b4b4;color:#8a1111;padding:9px 11px;border-radius:8px;font-size:13px;margin-top:12px}
+  .ok{background:#e8f5ec;border:1px solid #bfe3c9;color:#186a30;padding:9px 11px;border-radius:8px;font-size:13px;margin-top:12px}
+  .links{font-size:13px;text-align:center;margin-top:16px;line-height:1.9}
+  .links a{color:#1a56b8;text-decoration:none}
+  .dica{font-size:12px;color:#666;margin-top:6px}
+  .chk{display:flex;align-items:center;gap:8px;font-size:13px;margin-top:10px}
+  .chk input{width:auto}
+  .manual{font-size:12px;background:#fff7e6;border:1px solid #f5d38a;color:#7a4b00;padding:8px;border-radius:8px;margin-top:10px;word-break:break-all}
+  .forca{height:5px;background:#eee;border-radius:3px;margin-top:6px;overflow:hidden}.forca i{display:block;height:100%;width:0;background:#e10600;transition:.2s}
+</style>
+</head>
+<body>
+<div class="c">
+  <div class="logo"><img src="/static/logo.png" alt="Presidente Bernardes"></div>
+  <h3>Assistente de Plano de Aula</h3>
+
+  {% if modo == 'login' %}
+    <p class="sub">Entre com seu e-mail institucional.</p>
+    <form method="post" action="/login{% if request.args.get('next') %}?next={{ request.args.get('next') }}{% endif %}">
+      <label for="email">E-mail</label>
+      <input type="email" id="email" name="email" value="{{ email }}" placeholder="nome.sobrenome{{ dominio }}" autofocus required autocomplete="username">
+      <label for="senha">Senha</label>
+      <input type="password" id="senha" name="senha" required autocomplete="current-password">
+      <label class="chk"><input type="checkbox" name="lembrar" value="1" checked> Manter conectado neste computador</label>
+      {% if erro %}<div class="e">{{ erro }}</div>{% endif %}
+      <button>Entrar</button>
+    </form>
+    <div class="links">
+      <a href="/primeiro-acesso" style="display:block;border:1px solid #d9d9de;border-radius:8px;padding:10px;margin-top:6px;background:#fafafa;color:#222">
+        <b>É seu primeiro acesso?</b><br><span style="color:#666">Clique aqui para criar sua senha com o e-mail {{ dominio }}</span></a>
+      <a href="/primeiro-acesso" style="display:inline-block;margin-top:8px">Esqueci minha senha</a>
+    </div>
+
+  {% elif modo == 'primeiro' %}
+    <p class="sub">Informe seu e-mail institucional. Enviaremos um link para você criar (ou redefinir) sua senha.</p>
+    <form method="post" action="/primeiro-acesso">
+      <label for="email">E-mail institucional</label>
+      <input type="email" id="email" name="email" value="{{ email }}" placeholder="nome.sobrenome{{ dominio }}" autofocus required>
+      <p class="dica">Somente e-mails <b>{{ dominio }}</b> são aceitos.</p>
+      {% if erro %}<div class="e">{{ erro }}</div>{% endif %}
+      {% if ok %}<div class="ok">{{ ok|safe }}</div>{% endif %}
+      {% if link_manual %}<div class="manual"><b>Link para repassar ao professor:</b><br>{{ link_manual }}</div>{% endif %}
+      {% if not ok %}<button>Enviar link de acesso</button>{% endif %}
+    </form>
+    <div class="links"><a href="/login">← Voltar para o login</a></div>
+
+  {% elif modo == 'senha' %}
+    <p class="sub">Olá! Defina sua senha para <b>{{ usuario.email }}</b>.</p>
+    <form method="post" id="fs">
+      <label for="nome">Nome completo <span style="font-weight:400;color:#666">(aparece no plano de aula)</span></label>
+      <input type="text" id="nome" name="nome" value="{{ nome }}" required minlength="3">
+      <label for="senha">Nova senha</label>
+      <input type="password" id="senha" name="senha" required minlength="8" autocomplete="new-password" oninput="forca(this.value)">
+      <div class="forca"><i id="fb"></i></div>
+      <p class="dica">Mínimo de 8 caracteres, com letras e números.</p>
+      <label for="senha2">Repita a senha</label>
+      <input type="password" id="senha2" name="senha2" required autocomplete="new-password">
+      {% if erro %}<div class="e">{{ erro }}</div>{% endif %}
+      <button>Salvar senha e entrar</button>
+    </form>
+    <script>
+      function forca(v){let p=0;if(v.length>=8)p+=30;if(v.length>=12)p+=20;if(/[a-z]/.test(v)&&/[A-Z]/.test(v))p+=20;if(/\d/.test(v))p+=15;if(/[^A-Za-z0-9]/.test(v))p+=15;
+        const b=document.getElementById('fb');b.style.width=Math.min(p,100)+'%';b.style.background=p<50?'#e10600':p<80?'#e6a700':'#1fa34a';}
+    </script>
+
+  {% elif modo == 'token_invalido' %}
+    <div class="e" style="margin-top:14px">{{ erro }}</div>
+    <div class="links"><a href="/primeiro-acesso"><b>Solicitar novo link</b></a><br><a href="/login">Voltar para o login</a></div>
+
+  {% elif modo == 'sup' %}
+    <p class="sub">Acesso de emergência da supervisão.</p>
+    <form method="post" action="/supervisao/login" autocomplete="off">
+      <label for="senha">Senha da supervisão</label>
+      <input type="password" id="senha" name="senha" autofocus autocomplete="new-password">
+      {% if erro %}<div class="e">{{ erro }}</div>{% endif %}
+      <button>Entrar</button>
+    </form>
+    <div class="links"><a href="/login">← Entrar com e-mail e senha</a></div>
+  {% endif %}
+</div>
+</body>
+</html>

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Minha conta — Assistente de Plano de Aula</title>
+<style>
+  :root{--verm:#e10600;--cinza:#f4f4f5;--borda:#d9d9de;--muted:#6b6b76}
+  body{margin:0;font-family:"Segoe UI",Roboto,Arial,sans-serif;background:var(--cinza);color:#222}
+  header{background:#fff;border-bottom:3px solid var(--verm);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  header img{height:44px}
+  .link{background:none;border:1px solid var(--borda);border-radius:6px;padding:6px 10px;cursor:pointer;font-size:13px;text-decoration:none;color:inherit}
+  main{max-width:560px;margin:24px auto;padding:0 16px}
+  .card{background:#fff;border:1px solid var(--borda);border-radius:10px;padding:20px;margin-bottom:18px}
+  h1{font-size:20px;margin:0 0 4px}h2{font-size:16px;margin:0 0 10px}
+  .sub{font-size:13px;color:var(--muted);margin:0 0 14px}
+  label{display:block;font-size:13px;font-weight:600;margin:12px 0 4px}
+  input{width:100%;padding:9px 10px;border:1px solid var(--borda);border-radius:6px;font-size:14px;box-sizing:border-box}
+  button{padding:10px 16px;background:#111;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin-top:14px}
+  .e{background:#fdecec;border:1px solid #f3b4b4;color:#8a1111;padding:9px 11px;border-radius:8px;font-size:13px;margin-bottom:12px}
+  .ok{background:#e8f5ec;border:1px solid #bfe3c9;color:#186a30;padding:9px 11px;border-radius:8px;font-size:13px;margin-bottom:12px}
+  .badge{font-size:12px;padding:3px 8px;border-radius:12px;background:#e8f5ec;color:#186a30;border:1px solid #bfe3c9}
+</style>
+</head>
+<body>
+<header>
+  <img src="/static/logo.png" alt="Presidente Bernardes">
+  <div style="display:flex;gap:8px"><a class="link" href="/">✨ Novo plano</a><a class="link" href="/historico">🗂 Histórico</a><a class="link" href="/sair">Sair</a></div>
+</header>
+<main>
+  <div class="card">
+    <h1>Minha conta</h1>
+    <p class="sub">{{ u.email }} {% if e_supervisao %}<span class="badge">Supervisão</span>{% endif %}</p>
+    {% if erro %}<div class="e">{{ erro }}</div>{% endif %}
+    {% if ok %}<div class="ok">{{ ok }}</div>{% endif %}
+    <h2>Nome (como aparece no plano de aula)</h2>
+    <form method="post"><input type="hidden" name="acao" value="nome">
+      <input name="nome" value="{{ u.nome or '' }}" required minlength="3">
+      <button>Salvar nome</button>
+    </form>
+  </div>
+  <div class="card">
+    <h2>Alterar senha</h2>
+    <form method="post"><input type="hidden" name="acao" value="senha">
+      <label>Senha atual</label><input type="password" name="atual" required autocomplete="current-password">
+      <label>Nova senha</label><input type="password" name="nova" required minlength="8" autocomplete="new-password">
+      <p class="sub" style="margin-top:6px">Mínimo de 8 caracteres, com letras e números.</p>
+      <button>Alterar senha</button>
+    </form>
+  </div>
+</main>
+</body>
+</html>

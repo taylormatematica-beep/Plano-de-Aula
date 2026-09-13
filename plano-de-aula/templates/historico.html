@@ -39,10 +39,9 @@
   <div class="links">
     {% if e_supervisao and tem_senha_sup %}<span class="badge">Supervisão</span>{% endif %}
     <a class="link" href="/">✨ Novo plano</a>
-    {% if tem_senha_sup %}
-      {% if e_supervisao %}<a class="link" href="/supervisao/sair">Sair da supervisão</a>
-      {% else %}<a class="link" href="/supervisao/login">🔑 Área da supervisão</a>{% endif %}
-    {% endif %}
+    {% if e_supervisao %}<a class="link" href="/usuarios">👥 Usuários</a>{% endif %}
+    {% if usuario %}<a class="link" href="/conta" title="{{ usuario.email }}">👤 {{ usuario.nome or usuario.email }}</a>{% endif %}
+    <a class="link" href="/sair">Sair</a>
   </div>
 </header>
 
@@ -54,9 +53,7 @@
       {% else %}Seus planos gerados. Você pode reabrir, editar e baixar o PDF novamente.{% endif %}
     </p>
 
-    {% if not e_supervisao and not professor_atual %}
-    <div class="aviso">Informe seu nome abaixo (o mesmo usado ao gerar os planos) para ver o seu histórico.</div>
-    {% endif %}
+
 
     <div class="stats" id="stats" style="display:none"></div>
 
@@ -64,7 +61,7 @@
       {% if e_supervisao %}
         <select id="fProf"><option value="">Todos os professores</option>{% for p in professores %}<option>{{ p }}</option>{% endfor %}</select>
       {% else %}
-        <input id="fProf" placeholder="Seu nome" value="{{ professor_atual }}">
+        <input id="fProf" type="hidden" value="{{ professor_atual }}">
       {% endif %}
       <select id="fDisc"><option value="">Todas as disciplinas</option>{% for d in disciplinas %}<option>{{ d }}</option>{% endfor %}</select>
       <select id="fSerie"><option value="">Todas as séries</option>{% for s in series %}<option>{{ s }}</option>{% endfor %}</select>
@@ -84,10 +81,10 @@ function fmt(dt){ if(!dt) return ''; const [d,h]=dt.split(' '); const [y,m,dd]=d
 
 async function carregar(){
   const prof = $('fProf').value.trim();
-  if(!SUP){ localStorage.setItem('professor', prof);
-    await fetch('/api/sessao/professor',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({professor:prof})}); }
+
   const q = new URLSearchParams({professor:prof, disciplina:$('fDisc').value, serie:$('fSerie').value, busca:$('fBusca').value.trim()});
-  const itens = await (await fetch('/api/historico?'+q)).json();
+  const resp = await fetch('/api/historico?'+q); if(resp.status===401){ location.href='/login?next=/historico'; return; }
+  const itens = await resp.json();
   if(!itens.length){ $('lista').innerHTML='<div class="vazio">Nenhum plano encontrado.</div>'; $('stats').style.display='none'; return; }
   if(SUP){
     const vistos = itens.filter(i=>i.visto_em).length;
@@ -95,18 +92,25 @@ async function carregar(){
     $('stats').innerHTML = `<div class="stat"><b>${itens.length}</b>planos</div><div class="stat"><b>${vistos}</b>vistos pela supervisão</div><div class="stat"><b>${itens.length-vistos}</b>pendentes</div><div class="stat"><b>${new Set(itens.map(i=>i.professor.toLowerCase())).size}</b>professores</div>`;
   }
   $('lista').innerHTML = `<table><thead><tr>
-    <th>Gerado em</th><th>Professor(a)</th><th>Disciplina</th><th>Série</th><th>Tema</th><th>Semana</th>${SUP?'<th>Supervisão</th>':''}<th></th>
+    <th>Gerado em</th><th>Professor(a)</th><th>Disciplina</th><th>Série</th><th>Tema</th><th>Semana</th><th>Drive</th>${SUP?'<th>Supervisão</th>':''}<th></th>
   </tr></thead><tbody>${itens.map(i=>`<tr>
     <td style="white-space:nowrap">${fmt(i.criado_em)}</td><td>${esc(i.professor)}</td><td>${esc(i.disciplina)}</td><td>${esc(i.serie)}</td>
     <td>${esc(i.tema)}</td><td style="white-space:nowrap">${esc(i.data_ref)}</td>
+    <td style="white-space:nowrap">${i.drive_link?`<a class="acao" href="${esc(i.drive_link)}" target="_blank" title="salvo em ${fmt(i.drive_em)}">▲ Abrir</a>`:`<button class="acao" onclick="enviarDrive(${i.id},this)">▲ Enviar</button>`}</td>
     ${SUP?`<td>${i.visto_em?`<span class="visto">✔ visto ${fmt(i.visto_em)}</span> <button class="acao" onclick="visto(${i.id},true)" title="desfazer">↩</button>`:`<button class="acao ok" onclick="visto(${i.id},false)">Marcar visto</button>`}</td>`:''}
     <td style="white-space:nowrap"><a class="acao" href="/?id=${i.id}">Abrir</a><a class="acao" href="/api/historico/${i.id}/pdf">PDF</a><button class="acao red" onclick="excluir(${i.id})">Excluir</button></td>
   </tr>`).join('')}</tbody></table>`;
 }
+async function enviarDrive(id,btn){
+  btn.disabled=true; btn.textContent='Enviando…';
+  const r = await fetch(`/api/historico/${id}/drive`,{method:'POST'}); const j = await r.json();
+  if(!r.ok){ alert(j.erro); btn.disabled=false; btn.textContent='▲ Enviar'; return; }
+  carregar();
+}
 async function excluir(id){ if(!confirm('Excluir este plano do histórico?')) return;
   await fetch('/api/historico/'+id,{method:'DELETE'}); carregar(); }
 async function visto(id,desfazer){ await fetch(`/api/historico/${id}/visto`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({desfazer})}); carregar(); }
-if(!SUP && !$('fProf').value) $('fProf').value = localStorage.getItem('professor')||'';
+
 ['fDisc','fSerie'].forEach(i=>$(i).addEventListener('change',carregar));
 $('fBusca').addEventListener('keydown',e=>{if(e.key==='Enter')carregar()});
 if(SUP) $('fProf').addEventListener('change',carregar);

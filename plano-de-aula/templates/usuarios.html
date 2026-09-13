@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Usuários — Assistente de Plano de Aula</title>
+<style>
+  :root{--verm:#e10600;--cinza:#f4f4f5;--borda:#d9d9de;--muted:#6b6b76}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI",Roboto,Arial,sans-serif;background:var(--cinza);color:#222}
+  header{background:#fff;border-bottom:3px solid var(--verm);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  header img{height:44px}
+  .link{background:none;border:1px solid var(--borda);border-radius:6px;padding:6px 10px;cursor:pointer;font-size:13px;text-decoration:none;color:inherit}
+  .badge{font-size:12px;padding:3px 8px;border-radius:12px;background:#e8f5ec;color:#186a30;border:1px solid #bfe3c9}
+  main{max-width:1100px;margin:24px auto;padding:0 16px}
+  .card{background:#fff;border:1px solid var(--borda);border-radius:10px;padding:20px;margin-bottom:18px}
+  h1{font-size:20px;margin:0 0 4px}h2{font-size:16px;margin:0 0 8px}
+  .sub{font-size:13px;color:var(--muted);margin:0 0 14px}
+  textarea,input,select{width:100%;padding:9px 10px;border:1px solid var(--borda);border-radius:6px;font-size:14px;font-family:inherit}
+  textarea{min-height:90px}
+  .row{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:end;margin-top:10px}
+  button{padding:9px 14px;background:#111;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer}
+  button.sec{background:#fff;color:#222;border:1px solid var(--borda)}
+  button:disabled{opacity:.5}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{padding:9px 8px;border-bottom:1px solid var(--borda);text-align:left;vertical-align:middle}
+  th{font-size:12px;text-transform:uppercase;color:var(--muted)}
+  .acao{border:1px solid var(--borda);background:#fff;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:12px;margin-right:3px;color:#222}
+  .acao.red{color:var(--verm);border-color:#f3b4b4}
+  .st{font-size:12px;padding:2px 7px;border-radius:10px;white-space:nowrap}
+  .st.ok{background:#e8f5ec;color:#186a30}.st.pend{background:#fff7e6;color:#7a4b00}.st.off{background:#eee;color:#666}
+  .aviso{background:#fff7e6;border:1px solid #f5d38a;color:#7a4b00;padding:10px 12px;border-radius:8px;font-size:13px;margin-bottom:14px}
+  .res{font-size:13px;margin-top:10px}.res li{margin:3px 0}.res code{font-size:11px;word-break:break-all}
+  .nome-ed{border:none;background:transparent;padding:2px 4px;border-radius:4px;width:100%;font:inherit}
+  .nome-ed:focus{background:#fffbe6;outline:1px solid #f5d38a}
+  .stats{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px}.stat{background:var(--cinza);border-radius:8px;padding:8px 12px;font-size:13px}.stat b{font-size:17px;display:block}
+</style>
+</head>
+<body>
+<header>
+  <img src="/static/logo.png" alt="Presidente Bernardes">
+  <div style="display:flex;gap:8px;align-items:center"><span class="badge">Supervisão</span>
+    <a class="link" href="/">✨ Novo plano</a><a class="link" href="/historico">🗂 Histórico</a><a class="link" href="/conta">Minha conta</a><a class="link" href="/sair">Sair</a></div>
+</header>
+<main>
+  <div class="card">
+    <h1>Usuários</h1>
+    <p class="sub">Cadastre os e-mails institucionais dos professores. Cada um recebe um link por e-mail para criar a própria senha.</p>
+    {% if not email_ok %}
+    <div class="aviso">⚠ O envio de e-mail não está configurado (SMTP). Os cadastros funcionam, mas o <b>link de criação de senha aparecerá aqui na tela</b> para você repassar manualmente (WhatsApp etc.). Veja <b>USUARIOS-E-EMAIL.md</b> para configurar.</div>
+    {% endif %}
+    <h2>Adicionar professores</h2>
+    <textarea id="emails" placeholder="Cole um ou vários e-mails (um por linha, ou separados por vírgula/espaço)&#10;ex.: maria.silva{{ dominio }}&#10;     joao.souza{{ dominio }}"></textarea>
+    <div class="row">
+      <div><label style="font-size:12px;font-weight:600">Perfil</label>
+        <select id="perfil"><option value="professor">Professor(a)</option><option value="supervisao">Supervisão</option></select></div>
+      <label style="font-size:13px;display:flex;align-items:center;gap:6px;padding-bottom:8px"><input type="checkbox" id="enviar" checked style="width:auto"> Enviar link por e-mail</label>
+      <button id="btnAdd" onclick="adicionar()">Cadastrar</button>
+    </div>
+    <div id="resultado" class="res"></div>
+  </div>
+
+  <div class="card">
+    <div class="stats" id="stats"></div>
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px">
+      <input id="busca" placeholder="Buscar por nome ou e-mail…" style="max-width:320px" oninput="render()">
+      <select id="fst" style="max-width:200px" onchange="render()"><option value="">Todos</option><option value="pend">Senha pendente</option><option value="ok">Ativos com senha</option><option value="off">Desativados</option><option value="sup">Supervisão</option></select>
+    </div>
+    <div id="lista">Carregando…</div>
+  </div>
+</main>
+<script>
+const $=id=>document.getElementById(id); let dados=[];
+function esc(t){return String(t??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function fmt(dt){ if(!dt) return '—'; const [d,h]=dt.split(' '); const [y,m,dd]=d.split('-'); return `${dd}/${m}/${y} ${h?h.slice(0,5):''}`; }
+async function carregar(){ dados = await (await fetch('/api/usuarios')).json(); render(); }
+function status(u){ if(!u.ativo) return ['off','desativado']; if(!u.tem_senha) return ['pend','aguardando senha']; return ['ok','ativo']; }
+function render(){
+  const q=$('busca').value.toLowerCase(), f=$('fst').value;
+  const itens=dados.filter(u=>{ const [s]=status(u); if(f==='sup') return u.perfil==='supervisao'; if(f&&s!==f) return false;
+    return !q || (u.nome||'').toLowerCase().includes(q) || u.email.includes(q); });
+  const tot=dados.length, pend=dados.filter(u=>u.ativo&&!u.tem_senha).length, sup=dados.filter(u=>u.perfil==='supervisao').length;
+  $('stats').innerHTML=`<div class="stat"><b>${tot}</b>usuários</div><div class="stat"><b>${tot-pend-dados.filter(u=>!u.ativo).length}</b>com senha</div><div class="stat"><b>${pend}</b>aguardando senha</div><div class="stat"><b>${sup}</b>supervisão</div>`;
+  if(!itens.length){ $('lista').innerHTML='<p class="sub">Nenhum usuário.</p>'; return; }
+  $('lista').innerHTML=`<table><thead><tr><th>Nome</th><th>E-mail</th><th>Perfil</th><th>Situação</th><th>Último acesso</th><th></th></tr></thead><tbody>${itens.map(u=>{const [s,t]=status(u);return `<tr>
+    <td><input class="nome-ed" value="${esc(u.nome)}" onchange="editar(${u.id},{nome:this.value})" title="clique para editar"></td>
+    <td>${esc(u.email)}</td>
+    <td><select style="padding:3px 6px;width:auto;font-size:13px" onchange="editar(${u.id},{perfil:this.value})"><option value="professor" ${u.perfil==='professor'?'selected':''}>Professor(a)</option><option value="supervisao" ${u.perfil==='supervisao'?'selected':''}>Supervisão</option></select></td>
+    <td><span class="st ${s}">${t}</span></td>
+    <td style="white-space:nowrap;font-size:13px">${fmt(u.ultimo_acesso)}</td>
+    <td style="white-space:nowrap">
+      <button class="acao" onclick="reenviar(${u.id},this)">${u.tem_senha?'Redefinir senha':'Reenviar link'}</button>
+      <button class="acao" onclick="editar(${u.id},{ativo:${u.ativo?'false':'true'}})">${u.ativo?'Desativar':'Reativar'}</button>
+      <button class="acao red" onclick="excluir(${u.id},'${esc(u.email)}')">Excluir</button>
+    </td></tr>`}).join('')}</tbody></table>`;
+}
+async function adicionar(){
+  const emails=$('emails').value.trim(); if(!emails) return;
+  $('btnAdd').disabled=true; $('btnAdd').textContent='Cadastrando…';
+  const r=await fetch('/api/usuarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({emails,perfil:$('perfil').value,enviar:$('enviar').checked})});
+  const j=await r.json(); $('btnAdd').disabled=false; $('btnAdd').textContent='Cadastrar';
+  if(!r.ok){ alert(j.erro); return; }
+  $('resultado').innerHTML='<ul>'+j.map(x=>`<li>${x.status==='enviado'?'✅':x.status==='cadastrado'?'☑️':x.status==='link'?'⚠️':'❌'} <b>${esc(x.email)}</b> — ${esc(x.msg)}${x.link?`<br><code>${esc(x.link)}</code> <button class="acao" onclick="navigator.clipboard.writeText('${esc(x.link)}')">copiar</button>`:''}</li>`).join('')+'</ul>';
+  $('emails').value=''; carregar();
+}
+async function editar(id,c){ const r=await fetch('/api/usuarios/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)}); const j=await r.json(); if(!r.ok) alert(j.erro); carregar(); }
+async function excluir(id,email){ if(!confirm('Excluir o usuário '+email+'? Os planos dele no histórico são mantidos.')) return; const r=await fetch('/api/usuarios/'+id,{method:'DELETE'}); const j=await r.json(); if(!r.ok) alert(j.erro); carregar(); }
+async function reenviar(id,btn){ btn.disabled=true; const j=await (await fetch(`/api/usuarios/${id}/reenviar`,{method:'POST'})).json(); btn.disabled=false;
+  if(j.enviado) alert('Link enviado por e-mail.'); else prompt('E-mail não enviado ('+(j.erro||'')+'). Copie o link e repasse ao professor:', j.link||''); }
+carregar();
+</script>
+</body>
+</html>
