@@ -1,5 +1,5 @@
 """
-Gerador Automático de Plano de Aula — Escola Presidente Bernardes
+Assistente de Plano de Aula — Escola Presidente Bernardes
 Execute:  python app.py   e acesse http://localhost:5000
 """
 import json
@@ -14,6 +14,7 @@ from io import BytesIO
 from gerador import CONFIG_FILE, carregar_config, gerar_plano
 from pdf import gerar_pdf
 import db
+import drive
 
 db.init()
 
@@ -21,99 +22,172 @@ app = Flask(__name__)
 app.config["JSON_AS_ASCII"] = False
 
 # ----------------------------------------------------------------------------
-# Senha de acesso (opcional). Defina a variável de ambiente APP_SENHA para
-# exigir uma senha única compartilhada com os professores.
+# Autenticação por usuário (e-mail institucional + senha)
 # ----------------------------------------------------------------------------
 import os, hmac  # noqa: E402
-from flask import redirect, session, url_for  # noqa: E402
+from flask import redirect, session, url_for, abort  # noqa: E402
+import auth  # noqa: E402
+import email_util  # noqa: E402
+
 
 def _env(nome: str) -> str:
     """Lê variável de ambiente removendo espaços e aspas acidentais."""
     return os.getenv(nome, "").strip().strip('"').strip("'").strip()
 
 
-def _senha_confere(digitada: str, correta: str) -> bool:
-    if not correta:
-        return False
-    return hmac.compare_digest(digitada.strip().encode("utf-8"), correta.encode("utf-8"))
-
-
-APP_SENHA = _env("APP_SENHA")
-SUPERVISAO_SENHA = _env("SUPERVISAO_SENHA")   # libera a área da supervisão
 DIRECAO_NOME = _env("DIRECAO_NOME")           # nome impresso no campo Direção
 SUPERVISAO_NOME = _env("SUPERVISAO_NOME")     # nome padrão da supervisão
-app.secret_key = os.getenv("SECRET_KEY") or (APP_SENHA + "-plano-bernardes") or os.urandom(24)
+SUPERVISAO_SENHA = _env("SUPERVISAO_SENHA")   # senha de emergência da supervisão (opcional)
+PUBLIC_URL = _env("PUBLIC_URL")
+
+app.secret_key = os.getenv("SECRET_KEY") or (SUPERVISAO_SENHA + "-plano-bernardes-2026")
 app.config.update(
     SESSION_COOKIE_NAME="planoaula_sessao",
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SECURE=bool(os.getenv("RENDER") or os.getenv("FORCE_HTTPS")),  # https no Render
-    PERMANENT_SESSION_LIFETIME=60 * 60 * 12,  # 12 horas
+    PERMANENT_SESSION_LIFETIME=60 * 60 * 24 * 14,  # 14 dias
 )
 
 from werkzeug.middleware.proxy_fix import ProxyFix  # noqa: E402
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
-LOGIN_HTML = """<!doctype html><html lang=pt-BR><meta charset=utf-8><title>Acesso — Plano de Aula</title>
-<style>body{font-family:Segoe UI,Arial,sans-serif;background:#f4f4f5;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
-.c{background:#fff;border:1px solid #d9d9de;border-radius:12px;padding:28px;width:min(360px,92vw);text-align:center}
-img{height:50px;margin-bottom:10px}input{width:100%;padding:10px;border:1px solid #d9d9de;border-radius:6px;font-size:15px;margin:12px 0;box-sizing:border-box}
-button{width:100%;padding:11px;background:#111;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer}
-.e{color:#a00;font-size:13px}</style>
-<div class=c><img src="/static/logo.png"><h3 style="margin:6px 0">Assistente de Planos de Aula</h3>
-<p style="font-size:13px;color:#666">Informe a senha de acesso dos professores.</p>
-<form method=post action="{action}" autocomplete="off"><input type=password name="{campo}" placeholder="Senha" autofocus autocomplete="new-password">
-{erro}<button>Entrar</button></form>
-<p style="font-size:12px;margin-top:14px">{rodape}</p></div>"""
+ROTAS_PUBLICAS = {"login", "primeiro_acesso", "definir_senha", "static", "sup_login", "healthz"}
 
 
-def _pagina_login(titulo: str, action: str, campo: str, erro: str, rodape: str) -> str:
-    return (LOGIN_HTML.replace("Informe a senha de acesso dos professores.", titulo)
-            .replace("{action}", action).replace("{campo}", campo)
-            .replace("{erro}", erro).replace("{rodape}", rodape))
+def _base_url() -> str:
+    base = PUBLIC_URL or request.url_root.rstrip("/")
+    if base.startswith("http://") and "localhost" not in base and "127.0.0.1" not in base:
+        base = "https://" + base[len("http://"):]
+    return base
+
+
+def usuario_atual() -> dict | None:
+    uid = session.get("uid")
+    if not uid:
+        return None
+    u = db.usuario_por_id(uid)
+    if not u or not u.get("ativo", 1):
+        session.clear()
+        return None
+    return u
+
+
+def _e_supervisao() -> bool:
+    if session.get("sup"):
+        return True
+    u = usuario_atual()
+    return bool(u and u.get("perfil") == "supervisao")
+
+
+def _nome_professor() -> str:
+    u = usuario_atual()
+    return (u or {}).get("nome") or session.get("professor", "")
+
+
+def _email_professor() -> str:
+    u = usuario_atual()
+    return (u or {}).get("email", "")
 
 
 @app.before_request
-def _exigir_senha():
-    if not APP_SENHA:
+def _exigir_login():
+    if request.endpoint in ROTAS_PUBLICAS or (request.endpoint or "").startswith("static"):
         return None
-    if request.endpoint in ("login", "sup_login", "static") or session.get("ok") or session.get("sup"):
+    if usuario_atual() or session.get("sup"):
         return None
-    return redirect(url_for("login"))
+    if request.path.startswith("/api/"):
+        return jsonify({"erro": "Sessão expirada. Entre novamente.", "login": True}), 401
+    return redirect(url_for("login", next=request.path))
+
+
+@app.route("/healthz")
+def healthz():
+    return "ok"
 
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
     erro = ""
     if request.method == "POST":
-        if _senha_confere(request.form.get("senha", ""), APP_SENHA):
-            session.permanent = True
-            session["ok"] = True
-            return redirect("/")
-        erro = "<p class=e>Senha incorreta.</p>"
-    rodape = '<a href="/supervisao/login">Área da supervisão</a>' if SUPERVISAO_SENHA else ""
-    return _pagina_login("Informe a senha de acesso dos professores.", "/login", "senha", erro, rodape)
+        try:
+            u = auth.autenticar(request.form.get("email", ""), request.form.get("senha", ""))
+            session.clear()
+            session.permanent = bool(request.form.get("lembrar"))
+            session["uid"] = u["id"]
+            session["professor"] = u.get("nome") or ""
+            destino = request.args.get("next") or "/"
+            return redirect(destino if destino.startswith("/") else "/")
+        except auth.AuthErro as e:
+            erro = str(e)
+    return render_template("login.html", modo="login", erro=erro, dominio=auth.dominio_msg(),
+                           email=request.form.get("email", ""), ok="")
 
 
-def _e_supervisao() -> bool:
-    return bool(session.get("sup")) or not SUPERVISAO_SENHA
+@app.route("/primeiro-acesso", methods=["GET", "POST"])
+def primeiro_acesso():
+    erro, ok, link_manual = "", "", ""
+    if request.method == "POST":
+        try:
+            r = auth.solicitar_acesso(request.form.get("email", ""), _base_url())
+            if r["enviado"]:
+                ok = ("Enviamos um link para o seu e-mail. Abra a mensagem e clique em "
+                      "<b>Criar minha senha</b>. Verifique também a pasta de spam.")
+            else:
+                erro = ("Não foi possível enviar o e-mail agora. Procure a supervisão para receber o link de acesso."
+                        + (f" (Detalhe técnico: {r['erro']})" if _e_supervisao() else ""))
+                if _e_supervisao():
+                    link_manual = r["link"] or ""
+        except auth.AuthErro as e:
+            erro = str(e)
+    return render_template("login.html", modo="primeiro", erro=erro, ok=ok, dominio=auth.dominio_msg(),
+                           email=request.form.get("email", ""), link_manual=link_manual)
+
+
+@app.route("/senha/<token>", methods=["GET", "POST"])
+def definir_senha(token):
+    erro, usuario = "", None
+    try:
+        t = auth.validar_token(token)
+        usuario = db.usuario_por_id(t["usuario_id"])
+    except auth.AuthErro as e:
+        return render_template("login.html", modo="token_invalido", erro=str(e), dominio=auth.dominio_msg(), ok="")
+    if request.method == "POST":
+        s1, s2 = request.form.get("senha", ""), request.form.get("senha2", "")
+        nome = request.form.get("nome", "").strip()
+        if s1 != s2:
+            erro = "As senhas não coincidem."
+        elif not nome:
+            erro = "Informe seu nome completo (ele aparece no plano de aula)."
+        else:
+            try:
+                u = auth.definir_senha(token, s1, nome)
+                session.clear()
+                session.permanent = True
+                session["uid"] = u["id"]
+                session["professor"] = u.get("nome") or ""
+                return redirect("/?bemvindo=1")
+            except auth.AuthErro as e:
+                erro = str(e)
+    return render_template("login.html", modo="senha", erro=erro, ok="", usuario=usuario, token=token,
+                           dominio=auth.dominio_msg(), nome=request.form.get("nome") or usuario.get("nome") or "")
 
 
 @app.route("/supervisao/login", methods=["GET", "POST"])
 def sup_login():
+    """Acesso de emergência da supervisão por senha única (SUPERVISAO_SENHA). Opcional."""
+    if not SUPERVISAO_SENHA:
+        return redirect(url_for("login"))
     erro = ""
     if request.method == "POST":
-        if _senha_confere(request.form.get("senha", ""), SUPERVISAO_SENHA):
+        digitada = request.form.get("senha", "").strip().encode()
+        if hmac.compare_digest(digitada, SUPERVISAO_SENHA.encode()):
             session.permanent = True
             session["sup"] = True
-            session["ok"] = True
+            session.setdefault("professor", SUPERVISAO_NOME or "Supervisão")
             return redirect("/historico")
-        erro = "<p class=e>Senha incorreta.</p>"
-    if not SUPERVISAO_SENHA:
-        erro = ("<p class=e>A variável SUPERVISAO_SENHA não está definida no servidor. "
-                "Crie-a em Render → Environment e aguarde o redeploy.</p>")
-    return _pagina_login("Área da supervisão — informe a senha da supervisão.",
-                         "/supervisao/login", "senha", erro, '<a href="/login">Acesso dos professores</a>')
+        erro = "Senha incorreta."
+    return render_template("login.html", modo="sup", erro=erro, ok="", dominio=auth.dominio_msg())
 
 
 @app.route("/supervisao/sair")
@@ -122,42 +196,34 @@ def sup_sair():
     return redirect("/historico")
 
 
-@app.route("/diagnostico")
-def diagnostico():
-    def info_senha(v: str) -> str:
-        if not v:
-            return "❌ NÃO definida"
-        return f"✅ definida — {len(v)} caracteres, começa com «{v[0]}» e termina com «{v[-1]}»"
-    cfg = carregar_config()
-    linhas = {
-        "APP_SENHA (professores)": info_senha(APP_SENHA),
-        "SUPERVISAO_SENHA": info_senha(SUPERVISAO_SENHA),
-        "SUPERVISAO_NOME": SUPERVISAO_NOME or "❌ vazio",
-        "DIRECAO_NOME": DIRECAO_NOME or "❌ vazio",
-        "DATABASE_URL": "✅ PostgreSQL" if db.USA_PG else "⚠️ não definida (usando SQLite local — histórico some a cada deploy no Render)",
-        "IA": f"{cfg['provider']} · {cfg['model']} · chave {'✅' if cfg['api_key'] else '❌'}",
-        "Sessão atual": f"professor logado: {'sim' if session.get('ok') or not APP_SENHA else 'não'} · supervisão: {'sim' if session.get('sup') else 'não'}",
-    }
-    html = "".join(f"<tr><td style='padding:6px 12px;font-weight:600'>{k}</td><td style='padding:6px 12px'>{v}</td></tr>" for k, v in linhas.items())
-    return (f"<!doctype html><meta charset=utf-8><title>Diagnóstico</title>"
-            f"<body style='font-family:Segoe UI,Arial;padding:24px'><h2>Diagnóstico do servidor</h2>"
-            f"<table style='border-collapse:collapse;background:#f6f6f8;border-radius:8px'>{html}</table>"
-            f"<p style='color:#666;font-size:13px'>Se uma senha aparece com tamanho diferente do esperado, "
-            f"verifique espaços ou aspas no valor da variável no Render.</p><p><a href='/'>← voltar</a></p>")
-
-
 @app.route("/sair")
 def sair():
     session.clear()
     return redirect(url_for("login"))
 
-DISCIPLINAS = [
-    "Língua Portuguesa", "Literatura", "Redação", "Língua Inglesa", "Língua Espanhola", "Arte",
-    "Educação Física", "Matemática", "Física", "Química", "Biologia",
-    "História", "Geografia", "Filosofia", "Sociologia",
-    "Projeto de Vida", "Eletiva", "Estudo Orientado", "Tecnologia e Inovação",
-]
-SERIES = ["1º ano", "2º ano", "3º ano"]
+
+@app.route("/conta", methods=["GET", "POST"])
+def conta():
+    u = usuario_atual()
+    if not u:
+        return redirect(url_for("login"))
+    erro = ok = ""
+    if request.method == "POST":
+        try:
+            if request.form.get("acao") == "nome":
+                nome = request.form.get("nome", "").strip()
+                if len(nome) < 3:
+                    raise auth.AuthErro("Informe seu nome completo.")
+                db.usuario_atualizar(u["id"], nome=nome)
+                session["professor"] = nome
+                ok = "Nome atualizado."
+            else:
+                auth.trocar_senha(u["id"], request.form.get("atual", ""), request.form.get("nova", ""))
+                ok = "Senha alterada com sucesso."
+        except auth.AuthErro as e:
+            erro = str(e)
+        u = usuario_atual()
+    return render_template("conta.html", u=u, erro=erro, ok=ok, e_supervisao=_e_supervisao())
 
 
 def _slug(t: str) -> str:
@@ -188,12 +254,18 @@ def index():
         supervisao_nome=SUPERVISAO_NOME,
         direcao_nome=DIRECAO_NOME,
         e_supervisao=_e_supervisao(),
+        drive_conectado=drive.conectado(),
+        usuario=usuario_atual() or {"nome": session.get("professor", ""), "email": ""},
     )
 
 
 @app.route("/api/gerar", methods=["POST"])
 def api_gerar():
     dados = request.get_json(force=True) or {}
+    u = usuario_atual()
+    if u:
+        dados["professor"] = u.get("nome") or dados.get("professor", "")
+        dados["professor_email"] = u.get("email", "")
     obrig = ["professor", "disciplina", "conteudo", "data", "serie"]
     faltando = [c for c in obrig if not str(dados.get(c, "")).strip()]
     if faltando:
@@ -226,13 +298,39 @@ def api_pdf():
         except Exception:
             pass
     pdf = gerar_pdf(dados, plano)
-    nome = f"plano-de-aula-{_slug(dados.get('disciplina','')) or 'x'}-{_slug(dados.get('serie',''))}-{_slug(dados.get('data',''))}.pdf"
-    return send_file(BytesIO(pdf), mimetype="application/pdf", as_attachment=True, download_name=nome)
+    nome = f"plano-de-aula-{_slug(dados.get('disciplina','')) or 'x'}-{_slug(dados.get('serie',''))}-{_slug(dados.get('data',''))}-{_slug(dados.get('professor',''))}.pdf"
+    resp = send_file(BytesIO(pdf), mimetype="application/pdf", as_attachment=True, download_name=nome)
+    # envio automático ao Drive (silencioso: nunca impede o download)
+    if body.get("id") and drive.conectado() and drive.status()["auto"]:
+        try:
+            info = _enviar_drive(int(body["id"]), dados, plano, pdf)
+            resp.headers["X-Drive-Link"] = info["link"]
+        except Exception as e:  # noqa: BLE001
+            resp.headers["X-Drive-Erro"] = str(e)[:150]
+    return resp
+
+
+def _enviar_drive(id_: int, dados: dict, plano: dict, pdf: bytes | None = None) -> dict:
+    item = db.obter(id_) or {}
+    pdf = pdf or gerar_pdf(dados, plano)
+    d = dict(dados); d["_tema"] = plano.get("tema", "")
+    info = drive.enviar_pdf(pdf, d, file_id_existente=item.get("drive_file_id"))
+    db.set_drive(id_, info["id"], info["link"])
+    return info
 
 
 # ----------------------------------------------------------------------------
 # Histórico
 # ----------------------------------------------------------------------------
+def _pode_ver(item: dict) -> bool:
+    if _e_supervisao():
+        return True
+    em = _email_professor()
+    if em and item.get("dados", {}).get("professor_email"):
+        return item["dados"]["professor_email"].lower() == em.lower()
+    return item.get("professor", "").lower() == _nome_professor().lower()
+
+
 @app.route("/historico")
 def historico():
     sup = _e_supervisao()
@@ -240,7 +338,8 @@ def historico():
         "historico.html",
         e_supervisao=sup,
         tem_senha_sup=bool(SUPERVISAO_SENHA),
-        professor_atual=session.get("professor", ""),
+        usuario=usuario_atual(),
+        professor_atual=_nome_professor(),
         professores=db.professores() if sup else [],
         disciplinas=DISCIPLINAS, series=SERIES,
     )
@@ -250,13 +349,13 @@ def historico():
 def api_historico():
     sup = _e_supervisao()
     prof = request.args.get("professor", "").strip()
-    if not sup:
-        # professor comum: só vê os seus (nome informado na sessão ou no filtro)
-        prof = prof or session.get("professor", "")
-        if not prof:
-            return jsonify([])
-    itens = db.listar(professor=prof or None, disciplina=request.args.get("disciplina", ""),
-                      serie=request.args.get("serie", ""), busca=request.args.get("busca", ""))
+    if sup:
+        itens = db.listar(professor=prof or None, disciplina=request.args.get("disciplina", ""),
+                          serie=request.args.get("serie", ""), busca=request.args.get("busca", ""))
+    else:
+        itens = db.listar(professor=_nome_professor(), professor_email=_email_professor() or None,
+                          disciplina=request.args.get("disciplina", ""),
+                          serie=request.args.get("serie", ""), busca=request.args.get("busca", ""))
     return jsonify(itens)
 
 
@@ -265,7 +364,7 @@ def api_historico_item(id_):
     item = db.obter(id_)
     if not item:
         return jsonify({"erro": "não encontrado"}), 404
-    if not _e_supervisao() and item["professor"].lower() != session.get("professor", "").lower():
+    if not _pode_ver(item):
         return jsonify({"erro": "sem permissão"}), 403
     return jsonify(item)
 
@@ -275,7 +374,7 @@ def api_historico_pdf(id_):
     item = db.obter(id_)
     if not item:
         return "não encontrado", 404
-    if not _e_supervisao() and item["professor"].lower() != session.get("professor", "").lower():
+    if not _pode_ver(item):
         return "sem permissão", 403
     pdf = gerar_pdf(item["dados"], item["plano"])
     d = item["dados"]
@@ -288,7 +387,7 @@ def api_historico_excluir(id_):
     item = db.obter(id_)
     if not item:
         return jsonify({"erro": "não encontrado"}), 404
-    if not _e_supervisao() and item["professor"].lower() != session.get("professor", "").lower():
+    if not _pode_ver(item):
         return jsonify({"erro": "sem permissão"}), 403
     db.excluir(id_)
     return jsonify({"ok": True})
@@ -301,6 +400,185 @@ def api_historico_visto(id_):
     body = request.get_json(silent=True) or {}
     db.marcar_visto(id_, SUPERVISAO_NOME or "Supervisão", desfazer=bool(body.get("desfazer")))
     return jsonify({"ok": True})
+
+
+# ----------------------------------------------------------------------------
+# Google Drive
+# ----------------------------------------------------------------------------
+def _redirect_uri() -> str:
+    base = os.getenv("PUBLIC_URL", "").strip().rstrip("/") or request.url_root.rstrip("/")
+    if base.startswith("http://") and "localhost" not in base and "127.0.0.1" not in base:
+        base = "https://" + base[len("http://"):]
+    return base + "/drive/callback"
+
+
+@app.route("/api/drive/status")
+def api_drive_status():
+    st = drive.status()
+    st["redirect_uri"] = _redirect_uri()
+    return jsonify(st)
+
+
+@app.route("/drive/conectar")
+def drive_conectar():
+    if not _e_supervisao():
+        return redirect(url_for("sup_login"))
+    if not drive.credenciais_ok():
+        return "Defina GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET no servidor.", 400
+    state = os.urandom(12).hex()
+    session["drive_state"] = state
+    return redirect(drive.url_autorizacao(_redirect_uri(), state))
+
+
+@app.route("/drive/callback")
+def drive_callback():
+    if request.args.get("error"):
+        return redirect("/?drive=erro&msg=" + request.args["error"])
+    if request.args.get("state") != session.get("drive_state"):
+        return "Estado inválido. Tente conectar novamente.", 400
+    try:
+        drive.trocar_codigo(request.args.get("code", ""), _redirect_uri())
+        drive.pasta_raiz()
+    except Exception as e:  # noqa: BLE001
+        return f"Falha ao conectar ao Google Drive: {e}", 500
+    return redirect("/?drive=ok")
+
+
+@app.route("/api/drive/desconectar", methods=["POST"])
+def api_drive_desconectar():
+    if not _e_supervisao():
+        return jsonify({"erro": "sem permissão"}), 403
+    drive.desconectar()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/drive/config", methods=["POST"])
+def api_drive_config():
+    if not _e_supervisao():
+        return jsonify({"erro": "sem permissão"}), 403
+    body = request.get_json(force=True) or {}
+    try:
+        if "auto" in body:
+            db.config_set("drive_auto", "1" if body["auto"] else "0")
+        if body.get("pasta") is not None and drive.conectado():
+            drive.definir_pasta_raiz(body["pasta"])
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"erro": str(e)}), 400
+    return jsonify(drive.status())
+
+
+@app.route("/api/historico/<int:id_>/drive", methods=["POST"])
+def api_historico_drive(id_):
+    """Envia (ou reenvia) um plano do histórico para o Drive."""
+    item = db.obter(id_)
+    if not item:
+        return jsonify({"erro": "não encontrado"}), 404
+    if not _pode_ver(item):
+        return jsonify({"erro": "sem permissão"}), 403
+    if not drive.conectado():
+        return jsonify({"erro": "Google Drive não conectado. Peça à supervisão para conectar em Configurações."}), 400
+    try:
+        info = _enviar_drive(id_, item["dados"], item["plano"])
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"erro": f"Falha ao enviar ao Drive: {e}"}), 502
+    return jsonify(info)
+
+
+# ----------------------------------------------------------------------------
+# Usuários (supervisão)
+# ----------------------------------------------------------------------------
+@app.route("/usuarios")
+def usuarios():
+    if not _e_supervisao():
+        return redirect(url_for("login"))
+    return render_template("usuarios.html", e_supervisao=True, usuario=usuario_atual(),
+                           dominio=auth.dominio_msg(), email_ok=email_util.configurado())
+
+
+@app.route("/api/usuarios")
+def api_usuarios():
+    if not _e_supervisao():
+        return jsonify({"erro": "sem permissão"}), 403
+    return jsonify(db.usuarios_listar())
+
+
+@app.route("/api/usuarios", methods=["POST"])
+def api_usuarios_criar():
+    """Cadastra (um ou vários) e-mails e envia o link de criação de senha."""
+    if not _e_supervisao():
+        return jsonify({"erro": "sem permissão"}), 403
+    body = request.get_json(force=True) or {}
+    brutos = body.get("emails") or [body.get("email", "")]
+    if isinstance(brutos, str):
+        brutos = re.split(r"[\s,;]+", brutos)
+    perfil = "supervisao" if body.get("perfil") == "supervisao" else "professor"
+    enviar = body.get("enviar", True)
+    resultados = []
+    for e in brutos:
+        e = auth.normalizar_email(e)
+        if not e:
+            continue
+        if not auth.email_valido(e):
+            resultados.append({"email": e, "status": "erro", "msg": f"fora do domínio {auth.dominio_msg()}"}); continue
+        u = db.usuario_por_email(e)
+        if not u:
+            u = db.usuario_criar(e, body.get("nome", "") or auth.nome_do_email(e), perfil)
+        elif perfil == "supervisao" and u["perfil"] != "supervisao":
+            db.usuario_atualizar(u["id"], perfil="supervisao")
+        if enviar:
+            r = auth.solicitar_acesso(e, _base_url())
+            resultados.append({"email": e, "status": "enviado" if r["enviado"] else "link",
+                               "msg": "e-mail enviado" if r["enviado"] else (r["erro"] or ""), "link": r["link"]})
+        else:
+            resultados.append({"email": e, "status": "cadastrado", "msg": "cadastrado sem envio"})
+    return jsonify(resultados)
+
+
+@app.route("/api/usuarios/<int:id_>", methods=["PATCH"])
+def api_usuarios_editar(id_):
+    if not _e_supervisao():
+        return jsonify({"erro": "sem permissão"}), 403
+    body = request.get_json(force=True) or {}
+    u = db.usuario_por_id(id_)
+    if not u:
+        return jsonify({"erro": "não encontrado"}), 404
+    campos = {}
+    if "nome" in body:
+        campos["nome"] = body["nome"].strip()
+    if "perfil" in body and body["perfil"] in ("professor", "supervisao"):
+        campos["perfil"] = body["perfil"]
+    if "ativo" in body:
+        campos["ativo"] = 1 if body["ativo"] else 0
+    # impede remover a última supervisão
+    if (campos.get("perfil") == "professor" or campos.get("ativo") == 0) and u["perfil"] == "supervisao" \
+            and db.usuarios_total_supervisao() <= 1 and not SUPERVISAO_SENHA:
+        return jsonify({"erro": "Não é possível remover a última conta de supervisão."}), 400
+    db.usuario_atualizar(id_, **campos)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/usuarios/<int:id_>", methods=["DELETE"])
+def api_usuarios_excluir(id_):
+    if not _e_supervisao():
+        return jsonify({"erro": "sem permissão"}), 403
+    u = db.usuario_por_id(id_)
+    if not u:
+        return jsonify({"erro": "não encontrado"}), 404
+    if u["perfil"] == "supervisao" and db.usuarios_total_supervisao() <= 1 and not SUPERVISAO_SENHA:
+        return jsonify({"erro": "Não é possível excluir a última conta de supervisão."}), 400
+    db.usuario_excluir(id_)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/usuarios/<int:id_>/reenviar", methods=["POST"])
+def api_usuarios_reenviar(id_):
+    if not _e_supervisao():
+        return jsonify({"erro": "sem permissão"}), 403
+    u = db.usuario_por_id(id_)
+    if not u:
+        return jsonify({"erro": "não encontrado"}), 404
+    r = auth.solicitar_acesso(u["email"], _base_url())
+    return jsonify(r)
 
 
 @app.route("/api/sessao/professor", methods=["POST"])
@@ -341,5 +619,5 @@ def api_config():
 
 if __name__ == "__main__":
     porta = int(os.getenv("PORT", "5000"))
-    print(f"Assistente de Planos de Aula rodando em http://localhost:{porta}")
+    print(f"Assistente de Plano de Aula rodando em http://localhost:{porta}")
     app.run(host="0.0.0.0", port=porta, debug=False)

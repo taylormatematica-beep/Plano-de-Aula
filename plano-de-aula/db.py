@@ -64,15 +64,72 @@ def init():
         visto_em    TEXT,
         visto_por   TEXT
     )""".format(pk="SERIAL PRIMARY KEY" if USA_PG else "INTEGER PRIMARY KEY AUTOINCREMENT")
+    pk = "SERIAL PRIMARY KEY" if USA_PG else "INTEGER PRIMARY KEY AUTOINCREMENT"
     with conexao() as con:
         con.execute(ddl)
+        con.execute("CREATE TABLE IF NOT EXISTS config (chave TEXT PRIMARY KEY, valor TEXT)")
+        con.execute(f"""CREATE TABLE IF NOT EXISTS usuarios (
+            id            {pk},
+            email         TEXT NOT NULL UNIQUE,
+            nome          TEXT,
+            senha_hash    TEXT,
+            perfil        TEXT NOT NULL DEFAULT 'professor',
+            ativo         INTEGER NOT NULL DEFAULT 1,
+            criado_em     TEXT NOT NULL,
+            ultimo_acesso TEXT
+        )""")
+        con.execute(f"""CREATE TABLE IF NOT EXISTS tokens (
+            id          {pk},
+            usuario_id  INTEGER NOT NULL,
+            token_hash  TEXT NOT NULL UNIQUE,
+            expira_em   TEXT NOT NULL,
+            usado_em    TEXT,
+            criado_em   TEXT NOT NULL
+        )""")
+    # colunas adicionadas depois da 1ª versão (migração leve)
+    for col in ("drive_file_id", "drive_link", "drive_em", "professor_email"):
+        try:
+            with conexao() as con:
+                if USA_PG:
+                    con.execute(f"ALTER TABLE planos ADD COLUMN IF NOT EXISTS {col} TEXT")
+                else:
+                    con.execute(f"ALTER TABLE planos ADD COLUMN {col} TEXT")
+        except Exception:
+            pass  # coluna já existe
+
+
+# ---------------------------------------------------------------- config chave/valor
+def config_get(chave: str, padrao: str = "") -> str:
+    with conexao() as con:
+        cur = con.execute(_q("SELECT valor FROM config WHERE chave=?"), (chave,))
+        row = cur.fetchone()
+    return (row[0] if row else None) or padrao
+
+
+def config_set(chave: str, valor: str):
+    with conexao() as con:
+        con.execute(_q("INSERT INTO config (chave, valor) VALUES (?,?) "
+                       "ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor"), (chave, valor))
+
+
+def config_del(*chaves: str):
+    with conexao() as con:
+        for c in chaves:
+            con.execute(_q("DELETE FROM config WHERE chave=?"), (c,))
+
+
+def set_drive(id_: int, file_id: str | None, link: str | None):
+    with conexao() as con:
+        con.execute(_q("UPDATE planos SET drive_file_id=?, drive_link=?, drive_em=? WHERE id=?"),
+                    (file_id, link, datetime.now().strftime("%Y-%m-%d %H:%M:%S") if file_id else None, id_))
 
 
 def inserir(dados: dict, plano: dict) -> int:
     agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    sql = _q("""INSERT INTO planos (criado_em, professor, disciplina, serie, tema, data_ref, dados_json, plano_json)
-                VALUES (?,?,?,?,?,?,?,?) RETURNING id""")
-    params = (agora, dados.get("professor", "").strip(), dados.get("disciplina", ""), dados.get("serie", ""),
+    sql = _q("""INSERT INTO planos (criado_em, professor, professor_email, disciplina, serie, tema, data_ref, dados_json, plano_json)
+                VALUES (?,?,?,?,?,?,?,?,?) RETURNING id""")
+    params = (agora, dados.get("professor", "").strip(), (dados.get("professor_email") or "").lower().strip() or None,
+              dados.get("disciplina", ""), dados.get("serie", ""),
               plano.get("tema", ""), dados.get("data", ""),
               json.dumps(dados, ensure_ascii=False), json.dumps(plano, ensure_ascii=False))
     with conexao() as con:
@@ -102,9 +159,12 @@ def obter(id_: int) -> dict | None:
 
 
 def listar(professor: str | None = None, disciplina: str = "", serie: str = "", busca: str = "",
-           limite: int = 500) -> list[dict]:
+           limite: int = 500, professor_email: str | None = None) -> list[dict]:
     cond, params = [], []
-    if professor:
+    if professor_email:
+        cond.append("(LOWER(professor_email)=LOWER(?) OR (professor_email IS NULL AND LOWER(professor)=LOWER(?)))")
+        params += [professor_email.strip(), (professor or "").strip()]
+    elif professor:
         cond.append("LOWER(professor)=LOWER(?)"); params.append(professor.strip())
     if disciplina:
         cond.append("disciplina=?"); params.append(disciplina)
@@ -114,7 +174,8 @@ def listar(professor: str | None = None, disciplina: str = "", serie: str = "", 
         cond.append("(LOWER(tema) LIKE ? OR LOWER(professor) LIKE ?)")
         params += [f"%{busca.lower()}%", f"%{busca.lower()}%"]
     where = ("WHERE " + " AND ".join(cond)) if cond else ""
-    sql = _q(f"""SELECT id, criado_em, professor, disciplina, serie, tema, data_ref, visto_em, visto_por
+    sql = _q(f"""SELECT id, criado_em, professor, professor_email, disciplina, serie, tema, data_ref, visto_em, visto_por,
+                        drive_link, drive_em
                  FROM planos {where} ORDER BY id DESC LIMIT {int(limite)}""")
     with conexao() as con:
         return _linhas(con.execute(sql, params))
@@ -138,3 +199,98 @@ def professores() -> list[str]:
     with conexao() as con:
         cur = con.execute("SELECT DISTINCT professor FROM planos ORDER BY professor")
         return [r[0] for r in cur.fetchall()]
+
+
+# ---------------------------------------------------------------- usuários
+def _agora() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def usuario_por_email(email: str) -> dict | None:
+    with conexao() as con:
+        rows = _linhas(con.execute(_q("SELECT * FROM usuarios WHERE LOWER(email)=LOWER(?)"), (email.strip(),)))
+    return rows[0] if rows else None
+
+
+def usuario_por_id(id_: int) -> dict | None:
+    with conexao() as con:
+        rows = _linhas(con.execute(_q("SELECT * FROM usuarios WHERE id=?"), (id_,)))
+    return rows[0] if rows else None
+
+
+def usuario_criar(email: str, nome: str = "", perfil: str = "professor") -> dict:
+    with conexao() as con:
+        con.execute(_q("INSERT INTO usuarios (email, nome, perfil, criado_em) VALUES (?,?,?,?)"),
+                    (email.lower().strip(), nome.strip(), perfil, _agora()))
+    return usuario_por_email(email)
+
+
+def usuario_definir_senha(id_: int, senha_hash: str, nome: str | None = None):
+    with conexao() as con:
+        if nome:
+            con.execute(_q("UPDATE usuarios SET senha_hash=?, nome=? WHERE id=?"), (senha_hash, nome.strip(), id_))
+        else:
+            con.execute(_q("UPDATE usuarios SET senha_hash=? WHERE id=?"), (senha_hash, id_))
+
+
+def usuario_atualizar(id_: int, **campos):
+    permitidos = {"nome", "perfil", "ativo"}
+    campos = {k: v for k, v in campos.items() if k in permitidos}
+    if not campos:
+        return
+    sets = ", ".join(f"{k}=?" for k in campos)
+    with conexao() as con:
+        con.execute(_q(f"UPDATE usuarios SET {sets} WHERE id=?"), (*campos.values(), id_))
+
+
+def usuario_tocar(id_: int):
+    with conexao() as con:
+        con.execute(_q("UPDATE usuarios SET ultimo_acesso=? WHERE id=?"), (_agora(), id_))
+
+
+def usuario_excluir(id_: int):
+    with conexao() as con:
+        con.execute(_q("DELETE FROM tokens WHERE usuario_id=?"), (id_,))
+        con.execute(_q("DELETE FROM usuarios WHERE id=?"), (id_,))
+
+
+def usuarios_listar() -> list[dict]:
+    with conexao() as con:
+        return _linhas(con.execute(
+            "SELECT id, email, nome, perfil, ativo, criado_em, ultimo_acesso, "
+            "CASE WHEN senha_hash IS NULL OR senha_hash='' THEN 0 ELSE 1 END AS tem_senha "
+            "FROM usuarios ORDER BY nome, email"))
+
+
+def usuarios_total_supervisao() -> int:
+    with conexao() as con:
+        cur = con.execute("SELECT COUNT(*) FROM usuarios WHERE perfil='supervisao' AND ativo=1")
+        return int(cur.fetchone()[0])
+
+
+# ---------------------------------------------------------------- tokens
+def token_criar(usuario_id: int, token_hash: str, expira_em: str):
+    with conexao() as con:
+        con.execute(_q("INSERT INTO tokens (usuario_id, token_hash, expira_em, criado_em) VALUES (?,?,?,?)"),
+                    (usuario_id, token_hash, expira_em, _agora()))
+
+
+def token_ultimo(usuario_id: int) -> dict | None:
+    with conexao() as con:
+        rows = _linhas(con.execute(_q(
+            "SELECT * FROM tokens WHERE usuario_id=? AND usado_em IS NULL ORDER BY id DESC LIMIT 1"), (usuario_id,)))
+    return rows[0] if rows else None
+
+
+def token_obter(token_hash: str) -> dict | None:
+    with conexao() as con:
+        rows = _linhas(con.execute(_q("SELECT * FROM tokens WHERE token_hash=?"), (token_hash,)))
+    return rows[0] if rows else None
+
+
+def token_usar(id_: int):
+    with conexao() as con:
+        con.execute(_q("UPDATE tokens SET usado_em=? WHERE id=?"), (_agora(), id_))
+        # invalida outros tokens pendentes do mesmo usuário
+        con.execute(_q("UPDATE tokens SET usado_em=? WHERE usado_em IS NULL AND usuario_id="
+                       "(SELECT usuario_id FROM tokens WHERE id=?)"), (_agora(), id_))

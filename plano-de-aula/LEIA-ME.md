@@ -1,4 +1,4 @@
-# Gerador Automático de Plano de Aula — Presidente Bernardes
+# Assistente de Plano de Aula — Presidente Bernardes
 
 O professor informa apenas **matéria, conteúdo, data e série**; o sistema gera, via IA,
 o restante do plano (Tema, Habilidade da BNCC, Objetivos, Metodologia, Recursos e Avaliação)
@@ -33,6 +33,12 @@ Campos opcionais: período (data final), nº de aulas na semana, supervisão e o
 
 ## Histórico e assinaturas
 Veja `ATUALIZACAO-HISTORICO.md` (banco de dados, senha da supervisão, nomes para assinatura).
+
+## Login individual e e-mail
+Cada professor entra com e-mail institucional + senha: veja `USUARIOS-E-EMAIL.md`.
+
+## Google Drive
+Envio automático dos PDFs: veja `GOOGLE-DRIVE.md`.
 
 ## Estrutura
 - `app.py` — servidor web (Flask)
