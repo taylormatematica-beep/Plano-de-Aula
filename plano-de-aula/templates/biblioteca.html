@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Biblioteca de referências — Assistente de Plano de Aula</title>
+<style>
+  :root{--verm:#e10600;--cinza:#f4f4f5;--borda:#d9d9de;--muted:#6b6b76}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI",Roboto,Arial,sans-serif;background:var(--cinza);color:#222}
+  header{background:#fff;border-bottom:3px solid var(--verm);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  header img{height:44px}
+  .link{background:none;border:1px solid var(--borda);border-radius:6px;padding:6px 10px;cursor:pointer;font-size:13px;text-decoration:none;color:inherit}
+  .badge{font-size:12px;padding:3px 8px;border-radius:12px;background:#e8f5ec;color:#186a30;border:1px solid #bfe3c9}
+  main{max-width:1000px;margin:24px auto;padding:0 16px}
+  .card{background:#fff;border:1px solid var(--borda);border-radius:10px;padding:20px;margin-bottom:18px}
+  h1{font-size:20px;margin:0 0 4px}h2{font-size:16px;margin:0 0 8px}
+  .sub{font-size:13px;color:var(--muted);margin:0 0 14px;line-height:1.5}
+  label{display:block;font-size:12px;font-weight:600;margin:10px 0 4px}
+  input,select{width:100%;padding:9px 10px;border:1px solid var(--borda);border-radius:6px;font-size:14px;font-family:inherit}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  button{padding:9px 14px;background:#111;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin-top:12px}
+  button:disabled{opacity:.5}
+  .acao{border:1px solid var(--borda);background:#fff;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:12px;margin:0 3px 0 0;color:#222}
+  .acao.red{color:var(--verm);border-color:#f3b4b4}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{padding:9px 8px;border-bottom:1px solid var(--borda);text-align:left;vertical-align:top}
+  th{font-size:12px;text-transform:uppercase;color:var(--muted)}
+  .fixa{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--borda)}
+  .fixa:last-child{border:none}
+  .fixa b{display:block}.fixa small{color:var(--muted)}
+  .ok{background:#e8f5ec;border:1px solid #bfe3c9;color:#186a30;padding:9px 11px;border-radius:8px;font-size:13px;margin-top:10px}
+  .e{background:#fdecec;border:1px solid #f3b4b4;color:#8a1111;padding:9px 11px;border-radius:8px;font-size:13px;margin-top:10px}
+  .aviso{background:#fff7e6;border:1px solid #f5d38a;color:#7a4b00;padding:10px 12px;border-radius:8px;font-size:13px;margin-top:10px}
+  .ed{border:none;background:transparent;font:inherit;width:100%;padding:2px 4px;border-radius:4px}.ed:focus{background:#fffbe6;outline:1px solid #f5d38a}
+  .trecho{background:var(--cinza);border-radius:8px;padding:10px;font-size:13px;margin-top:8px;white-space:pre-wrap}
+  .trecho b{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+</style>
+</head>
+<body>
+<header>
+  <img src="/static/logo.png" alt="Presidente Bernardes">
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    {% if e_supervisao %}<span class="badge">Supervisão</span>{% endif %}
+    <a class="link" href="/">✨ Novo plano</a><a class="link" href="/historico">🗂 Histórico</a>
+    {% if e_supervisao %}<a class="link" href="/usuarios">👥 Usuários</a>{% endif %}
+    {% if usuario %}<a class="link" href="/conta">👤 {{ usuario.nome or usuario.email }}</a>{% endif %}
+    <a class="link" href="/sair">Sair</a>
+  </div>
+</header>
+<main>
+  <div class="card">
+    <h1>Biblioteca de referências</h1>
+    <p class="sub">Fontes que a IA usa para fundamentar os planos de aula. As <b>fontes fixas</b> já fazem parte do sistema.
+      A supervisão pode enviar <b>documentos em PDF</b> (ex.: os Cadernos de Formação do ICE) — o texto é indexado e os trechos
+      relacionados ao tema da aula são consultados na hora da geração e citados nas <b>Fontes</b> do plano.</p>
+    <h2>Fontes fixas</h2>
+    {% for k, f in fontes.items() %}
+    <div class="fixa"><span>📘</span><div><b>{{ f.nome }}</b><small>{{ f.citacao }}</small></div></div>
+    {% endfor %}
+  </div>
+
+  {% if e_supervisao %}
+  <div class="card">
+    <h2>Enviar documento</h2>
+    <p class="sub">PDF, DOCX ou TXT com texto selecionável (PDFs escaneados como imagem não funcionam). Até 40 MB.</p>
+    <form id="f" onsubmit="enviar(event)">
+      <label>Arquivo</label><input type="file" id="arquivo" accept=".pdf,.docx,.txt,.md" required>
+      <div class="row">
+        <div><label>Título (como aparecerá nas fontes)</label><input id="titulo" placeholder="Ex.: Caderno 4 – Metodologias de Êxito"></div>
+        <div><label>Categoria</label>
+          <select id="categoria"><option>ICE</option><option>SEE/MG</option><option>BNCC</option><option>Livro didático</option><option>Outro</option></select></div>
+      </div>
+      <label>Referência bibliográfica (opcional)</label>
+      <input id="citacao" placeholder="Ex.: ICE. Inovações em Conteúdo, Método e Gestão: Metodologias de Êxito. Recife: ICE, 2019.">
+      <button id="btn">Enviar e indexar</button>
+      <div id="msg"></div>
+    </form>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h2>Documentos enviados</h2>
+    <div id="lista">Carregando…</div>
+    <div style="margin-top:16px">
+      <label>Testar busca: digite um tema e veja quais trechos seriam usados</label>
+      <div style="display:flex;gap:8px"><input id="q" placeholder="Ex.: função quadrática, protagonismo, tutoria…"><button style="margin:0" onclick="testar()">Buscar</button></div>
+      <div id="trechos"></div>
+    </div>
+  </div>
+</main>
+<script>
+const $=id=>document.getElementById(id); const SUP={{ 'true' if e_supervisao else 'false' }};
+function esc(t){return String(t??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function kb(n){return n>1048576?(n/1048576).toFixed(1)+' MB':Math.round(n/1024)+' KB';}
+async function carregar(){
+  const d=await (await fetch('/api/documentos')).json();
+  if(!d.length){$('lista').innerHTML='<p class="sub">Nenhum documento enviado ainda.'+(SUP?' Envie os Cadernos do ICE acima.':'')+'</p>';return;}
+  $('lista').innerHTML=`<table><thead><tr><th>Título</th><th>Categoria</th><th>Referência</th><th>Trechos</th>${SUP?'<th></th>':''}</tr></thead><tbody>${d.map(x=>`<tr style="${x.ativo?'':'opacity:.5'}">
+    <td>${SUP?`<input class="ed" value="${esc(x.titulo)}" onchange="editar(${x.id},{titulo:this.value})">`:esc(x.titulo)}<br><small style="color:var(--muted)">${esc(x.arquivo||'')} · ${kb(x.tamanho||0)}</small></td>
+    <td>${esc(x.categoria)}</td>
+    <td style="font-size:13px">${SUP?`<input class="ed" value="${esc(x.citacao||'')}" onchange="editar(${x.id},{citacao:this.value})">`:esc(x.citacao||'')}</td>
+    <td>${x.n_trechos}</td>
+    ${SUP?`<td style="white-space:nowrap"><button class="acao" onclick="editar(${x.id},{ativo:${x.ativo?'false':'true'}})">${x.ativo?'Desativar':'Ativar'}</button><button class="acao red" onclick="excluir(${x.id},'${esc(x.titulo)}')">Excluir</button></td>`:''}
+  </tr>`).join('')}</tbody></table>`;
+}
+async function enviar(e){
+  e.preventDefault(); const fd=new FormData(); fd.append('arquivo',$('arquivo').files[0]); fd.append('titulo',$('titulo').value); fd.append('citacao',$('citacao').value); fd.append('categoria',$('categoria').value);
+  $('btn').disabled=true; $('btn').textContent='Enviando e lendo o arquivo…'; $('msg').innerHTML='';
+  const r=await fetch('/api/documentos',{method:'POST',body:fd}); const j=await r.json();
+  $('btn').disabled=false; $('btn').textContent='Enviar e indexar';
+  if(!r.ok){$('msg').innerHTML='<div class="e">'+esc(j.erro)+'</div>';return;}
+  $('msg').innerHTML='<div class="ok">✅ Documento indexado em '+j.n_trechos+' trechos. Já está disponível para os professores.</div>';
+  $('f').reset(); carregar();
+}
+async function editar(id,c){const r=await fetch('/api/documentos/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)}); if(!r.ok) alert((await r.json()).erro); carregar();}
+async function excluir(id,t){ if(!confirm('Excluir "'+t+'" da biblioteca?')) return; await fetch('/api/documentos/'+id,{method:'DELETE'}); carregar(); }
+async function testar(){ const q=$('q').value.trim(); if(!q) return; const d=await (await fetch('/api/documentos/buscar?q='+encodeURIComponent(q))).json();
+  $('trechos').innerHTML = d.length ? d.map(t=>`<div class="trecho"><b>${esc(t.titulo)}</b>${esc(t.texto)}…</div>`).join('') : '<div class="aviso">Nenhum trecho relacionado encontrado nos documentos enviados.</div>'; }
+$('q')?.addEventListener('keydown',e=>{if(e.key==='Enter')testar()});
+carregar();
+</script>
+</body>
+</html>

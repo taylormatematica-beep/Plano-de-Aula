@@ -38,7 +38,7 @@
   <img src="/static/logo.png" alt="Presidente Bernardes">
   <div class="links">
     {% if e_supervisao and tem_senha_sup %}<span class="badge">Supervisão</span>{% endif %}
-    <a class="link" href="/">✨ Novo plano</a>
+    <a class="link" href="/">✨ Novo plano</a><a class="link" href="/biblioteca" style="text-decoration:none;color:inherit">📚 Referências</a>
     {% if e_supervisao %}<a class="link" href="/usuarios">👥 Usuários</a>{% endif %}
     {% if usuario %}<a class="link" href="/conta" title="{{ usuario.email }}">👤 {{ usuario.nome or usuario.email }}</a>{% endif %}
     <a class="link" href="/sair">Sair</a>

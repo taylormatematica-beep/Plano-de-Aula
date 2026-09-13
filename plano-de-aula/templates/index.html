@@ -69,6 +69,7 @@
     <span id="cfgTxt">{% if ia_configurada %}IA ativa ({{ provider }} · {{ model }}){% else %}IA não configurada — modo demonstração{% endif %}</span>
     {% if drive_conectado %}<span class="badge-drive" title="Os PDFs são salvos automaticamente no Google Drive da escola">▲ Drive conectado</span>{% endif %}
     <a class="link" href="/historico" style="text-decoration:none;color:inherit">🗂 Histórico</a>
+    <a class="link" href="/biblioteca" style="text-decoration:none;color:inherit">📚 Referências</a>
     {% if e_supervisao %}<a class="link" href="/usuarios" style="text-decoration:none;color:inherit">👥 Usuários</a><button class="link" onclick="abrirCfg()">⚙ Configurações</button>{% endif %}
     {% if usuario and usuario.email %}<a class="link" href="/conta" style="text-decoration:none;color:inherit" title="{{ usuario.email }}">👤 {{ usuario.nome or usuario.email }}</a>{% endif %}
     <a class="link" href="/sair" style="text-decoration:none;color:inherit">Sair</a>
@@ -129,6 +130,27 @@
       <input id="direcao" placeholder="Nome do(a) diretor(a)" value="{{ direcao_nome }}">
       <label for="observacoes">Observações para a IA</label>
       <textarea id="observacoes" placeholder="Ex.: turma com dificuldade em leitura; usar laboratório; incluir revisão para o ENEM…"></textarea>
+    </details>
+
+    <details style="margin-top:8px">
+      <summary style="cursor:pointer;font-size:13px;color:var(--muted)">Fontes de pesquisa da IA (todas marcadas por padrão)</summary>
+      <div id="fontes" style="margin-top:8px;font-size:14px;line-height:1.9">
+        {% for k, f in fontes.items() %}
+        <label style="display:flex;gap:8px;align-items:flex-start;font-weight:500;margin:0">
+          <input type="checkbox" class="fonte" value="{{ k }}" checked style="width:auto;margin-top:6px"> <span>{{ f.nome }}<br><small style="color:var(--muted);font-weight:400">{{ f.resumo }}</small></span>
+        </label>
+        {% endfor %}
+        {% if documentos %}
+        <div style="font-size:12px;font-weight:600;margin-top:8px;color:var(--muted)">DOCUMENTOS DA BIBLIOTECA DA ESCOLA</div>
+        {% for d in documentos %}
+        <label style="display:flex;gap:8px;align-items:flex-start;font-weight:500;margin:0">
+          <input type="checkbox" class="doc" value="{{ d.id }}" checked style="width:auto;margin-top:6px"> <span>{{ d.titulo }} <small style="color:var(--muted)">({{ d.categoria }})</small></span>
+        </label>
+        {% endfor %}
+        {% else %}
+        <small style="color:var(--muted)">Nenhum documento enviado ainda. A supervisão pode enviar os Cadernos do ICE em <a href="/biblioteca">📚 Referências</a>.</small>
+        {% endif %}
+      </div>
     </details>
 
     <button class="btn primary" id="btnGerar" onclick="gerar()">✨ Gerar plano de aula</button>
@@ -216,7 +238,9 @@ function coletar(){
     professor: $('professor').value.trim(), direcao: $('direcao').value.trim(),
     disciplina: disc, conteudo: $('conteudo').value.trim(), data: $('data').value,
     data_fim: $('dataFim').value, serie: $('serie').value, aulas: $('aulas').value,
-    supervisao: $('supervisao').value.trim(), observacoes: $('observacoes').value.trim()
+    supervisao: $('supervisao').value.trim(), observacoes: $('observacoes').value.trim(),
+    fontes: [...document.querySelectorAll('.fonte:checked')].map(x=>x.value),
+    documentos: [...document.querySelectorAll('.doc:checked')].map(x=>x.value)
   };
 }
 
@@ -263,6 +287,7 @@ function renderizar(){
     </table>
     <table>${bloco('RECURSOS DIDÁTICOS:','recursos',50)}</table>
     <table>${bloco('AVALIAÇÃO:','avaliacao',50)}</table>
+    <table>${bloco('FONTES / REFERÊNCIAS:','fontes',40)}</table>
     <table style="border:none;margin-top:28px"><tr>
       ${['Professor(a)|professor','Supervisão Pedagógica|supervisao','Direção|direcao'].map(x=>{const [t,c]=x.split('|');return `<td style="border:none;text-align:center;font-size:11px;padding:0 6px">______________________________<br><b>${t}</b><br><span class="ed inline" contenteditable="true" data-dado="${c}">${esc(d[c]||'')}</span><br>Data: ____/____/______</td>`}).join('')}
     </tr></table>
