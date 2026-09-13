@@ -238,6 +238,39 @@ def sup_sair():
     return redirect("/historico")
 
 
+@app.route("/diagnostico")
+def diagnostico():
+    if not _e_supervisao():
+        return "Apenas a supervisão pode ver o diagnóstico.", 403
+
+    def info_senha(v: str) -> str:
+        if not v:
+            return "❌ NÃO definida"
+        return f"✅ definida — {len(v)} caracteres, começa com «{v[0]}» e termina com «{v[-1]}»"
+    cfg = carregar_config()
+    linhas = {
+        "Login por usuário": f"domínio {auth.dominio_msg()} · {len(db.usuarios_listar())} usuário(s) · {db.usuarios_total_supervisao()} supervisão",
+        "E-mail (SMTP)": (f"✅ {email_util.SMTP_HOST}:{email_util.SMTP_PORT} como {email_util.SMTP_USER}" if email_util.configurado()
+                          else "❌ não configurado (SMTP_HOST/SMTP_USER/SMTP_PASS) — links terão de ser repassados manualmente"),
+        "SUPERVISAO_EMAILS": ", ".join(sorted(auth.SUPERVISAO_EMAILS)) or "— (nenhum; use SUPERVISAO_SENHA ou promova pela tela Usuários)",
+        "SUPERVISAO_SENHA (emergência)": info_senha(SUPERVISAO_SENHA),
+        "PUBLIC_URL": PUBLIC_URL or "⚠️ vazio (usará o endereço da requisição)",
+        "SUPERVISAO_NOME": SUPERVISAO_NOME or "❌ vazio",
+        "DIRECAO_NOME": DIRECAO_NOME or "❌ vazio",
+        "DATABASE_URL": "✅ PostgreSQL" if db.USA_PG else "⚠️ não definida (usando SQLite local — histórico some a cada deploy no Render)",
+        "IA": f"{cfg['provider']} · {cfg['model']} · chave {'✅' if cfg['api_key'] else '❌'}",
+        "Google Drive": ("✅ conectado como " + drive.status()["conta"]) if drive.conectado()
+                        else ("⚠️ credenciais OK, falta conectar (Configurações)" if drive.credenciais_ok()
+                              else "— não configurado (opcional)"),
+        "Sessão atual": f"usuário: {_email_professor() or '—'} · supervisão: {'sim' if _e_supervisao() else 'não'}",
+    }
+    html = "".join(f"<tr><td style='padding:6px 12px;font-weight:600'>{k}</td><td style='padding:6px 12px'>{v}</td></tr>" for k, v in linhas.items())
+    return (f"<!doctype html><meta charset=utf-8><title>Diagnóstico</title>"
+            f"<body style='font-family:Segoe UI,Arial;padding:24px'><h2>Diagnóstico do servidor</h2>"
+            f"<table style='border-collapse:collapse;background:#f6f6f8;border-radius:8px'>{html}</table>"
+            f"<p><a href='/healthz'>Verificação de arquivos e banco</a> · <a href='/'>← voltar</a></p>")
+
+
 @app.route("/sair")
 def sair():
     session.clear()
@@ -266,6 +299,15 @@ def conta():
             erro = str(e)
         u = usuario_atual()
     return render_template("conta.html", u=u, erro=erro, ok=ok, e_supervisao=_e_supervisao())
+
+
+DISCIPLINAS = [
+    "Língua Portuguesa", "Literatura", "Redação", "Língua Inglesa", "Língua Espanhola", "Arte",
+    "Educação Física", "Matemática", "Física", "Química", "Biologia",
+    "História", "Geografia", "Filosofia", "Sociologia",
+    "Projeto de Vida", "Eletiva", "Estudo Orientado", "Tecnologia e Inovação",
+]
+SERIES = ["1º ano", "2º ano", "3º ano"]
 
 
 def _slug(t: str) -> str:
