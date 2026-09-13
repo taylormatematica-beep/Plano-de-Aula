@@ -15,6 +15,7 @@ from gerador import CONFIG_FILE, carregar_config, gerar_plano
 from pdf import gerar_pdf
 import db
 import drive
+import fuso
 
 db.init()
 
@@ -262,6 +263,7 @@ def diagnostico():
         "Google Drive": ("✅ conectado como " + drive.status()["conta"]) if drive.conectado()
                         else ("⚠️ credenciais OK, falta conectar (Configurações)" if drive.credenciais_ok()
                               else "— não configurado (opcional)"),
+        "Horário do sistema": f"{fuso.agora().strftime('%d/%m/%Y %H:%M')} ({fuso.FUSO.key}) · UTC do servidor: {__import__('datetime').datetime.now(__import__('datetime').timezone.utc).strftime('%H:%M')}",
         "Sessão atual": f"usuário: {_email_professor() or '—'} · supervisão: {'sim' if _e_supervisao() else 'não'}",
     }
     html = "".join(f"<tr><td style='padding:6px 12px;font-weight:600'>{k}</td><td style='padding:6px 12px'>{v}</td></tr>" for k, v in linhas.items())
@@ -331,7 +333,7 @@ def index():
         "index.html",
         disciplinas=DISCIPLINAS,
         series=SERIES,
-        hoje=date.today().isoformat(),
+        hoje=fuso.hoje().isoformat(),
         ia_configurada=bool(cfg["api_key"]),
         provider=cfg["provider"],
         model=cfg["model"],

@@ -21,6 +21,7 @@ from datetime import datetime
 import requests
 
 import db
+import fuso
 
 CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
 CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
@@ -206,7 +207,7 @@ def _slug(t: str) -> str:
 
 def _ano_letivo(data_ref: str) -> str:
     m = re.search(r"(\d{4})", data_ref or "")
-    return m.group(1) if m else str(datetime.now().year)
+    return m.group(1) if m else str(fuso.hoje().year)
 
 
 def nome_arquivo(dados: dict) -> str:

@@ -17,6 +17,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 import db
 import email_util
+import fuso
 
 DOMINIO = (os.getenv("DOMINIO_EMAIL", "educacao.mg.gov.br").strip().lower().lstrip("@")) or "educacao.mg.gov.br"
 DOMINIOS_EXTRAS = [d.strip().lower().lstrip("@") for d in os.getenv("DOMINIOS_EXTRAS", "").split(",") if d.strip()]
@@ -75,7 +76,7 @@ def _hash_token(token: str) -> str:
 
 def gerar_token(usuario_id: int) -> str:
     token = secrets.token_urlsafe(32)
-    expira = (datetime.now() + timedelta(hours=VALIDADE_HORAS)).strftime("%Y-%m-%d %H:%M:%S")
+    expira = (fuso.agora() + timedelta(hours=VALIDADE_HORAS)).strftime("%Y-%m-%d %H:%M:%S")
     db.token_criar(usuario_id, _hash_token(token), expira)
     return token
 
@@ -87,7 +88,7 @@ def validar_token(token: str) -> dict:
         raise AuthErro("Link inválido. Solicite um novo link de acesso.")
     if t.get("usado_em"):
         raise AuthErro("Este link já foi utilizado. Se precisar, solicite um novo.")
-    if datetime.strptime(t["expira_em"], "%Y-%m-%d %H:%M:%S") < datetime.now():
+    if datetime.strptime(t["expira_em"], "%Y-%m-%d %H:%M:%S") < fuso.agora():
         raise AuthErro("Este link expirou. Solicite um novo link de acesso.")
     return t
 

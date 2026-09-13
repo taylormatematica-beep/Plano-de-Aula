@@ -10,6 +10,8 @@ import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
+
+import fuso
 from pathlib import Path
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
@@ -121,11 +123,11 @@ def config_del(*chaves: str):
 def set_drive(id_: int, file_id: str | None, link: str | None):
     with conexao() as con:
         con.execute(_q("UPDATE planos SET drive_file_id=?, drive_link=?, drive_em=? WHERE id=?"),
-                    (file_id, link, datetime.now().strftime("%Y-%m-%d %H:%M:%S") if file_id else None, id_))
+                    (file_id, link, fuso.agora_txt() if file_id else None, id_))
 
 
 def inserir(dados: dict, plano: dict) -> int:
-    agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    agora = fuso.agora_txt()
     sql = _q("""INSERT INTO planos (criado_em, professor, professor_email, disciplina, serie, tema, data_ref, dados_json, plano_json)
                 VALUES (?,?,?,?,?,?,?,?,?) RETURNING id""")
     params = (agora, dados.get("professor", "").strip(), (dados.get("professor_email") or "").lower().strip() or None,
@@ -192,7 +194,7 @@ def marcar_visto(id_: int, por: str, desfazer: bool = False):
             con.execute(_q("UPDATE planos SET visto_em=NULL, visto_por=NULL WHERE id=?"), (id_,))
         else:
             con.execute(_q("UPDATE planos SET visto_em=?, visto_por=? WHERE id=?"),
-                        (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), por, id_))
+                        (fuso.agora_txt(), por, id_))
 
 
 def professores() -> list[str]:
@@ -203,7 +205,7 @@ def professores() -> list[str]:
 
 # ---------------------------------------------------------------- usuários
 def _agora() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return fuso.agora_txt()
 
 
 def usuario_por_email(email: str) -> dict | None:
