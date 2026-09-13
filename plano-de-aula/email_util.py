@@ -1,6 +1,15 @@
 """
-Envio de e-mails via SMTP (Gmail, Brevo, Outlook ou qualquer servidor).
+Envio de e-mails.
 
+Dois modos (o primeiro configurado é usado):
+
+1) API HTTP — funciona em hospedagens que bloqueiam SMTP (Render gratuito, Railway...).
+   BREVO_API_KEY   chave "xkeysib-..." de https://app.brevo.com/settings/keys/api   (300 e-mails/dia grátis)
+   RESEND_API_KEY  chave "re_..." de https://resend.com  (100/dia grátis; exige domínio próprio verificado)
+   EMAIL_FROM      remetente, ex.: "Assistente de Plano de Aula <escola@gmail.com>"
+                   (no Brevo, o e-mail precisa estar validado em Senders)
+
+2) SMTP clássico (Gmail com senha de app, Outlook etc.) — só em hospedagens que liberam a porta 587/465.
 Variáveis de ambiente:
   SMTP_HOST      ex.: smtp.gmail.com   |  smtp-relay.brevo.com  |  smtp.office365.com
   SMTP_PORT      587 (STARTTLS, padrão) ou 465 (SSL)
@@ -20,20 +29,94 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", "587") or 587)
 SMTP_USER = os.getenv("SMTP_USER", "").strip()
 SMTP_PASS = os.getenv("SMTP_PASS", "").strip().replace(" ", "")  # senha de app do Gmail vem com espaços
 SMTP_FROM = os.getenv("SMTP_FROM", "").strip() or SMTP_USER
+BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "").strip()
+EMAIL_FROM = os.getenv("EMAIL_FROM", "").strip() or SMTP_FROM
+
+
+def modo() -> str:
+    if BREVO_API_KEY:
+        return "brevo"
+    if RESEND_API_KEY:
+        return "resend"
+    if SMTP_HOST and SMTP_USER and SMTP_PASS:
+        return "smtp"
+    return ""
 
 
 def configurado() -> bool:
-    return bool(SMTP_HOST and SMTP_USER and SMTP_PASS)
+    return bool(modo())
+
+
+def descricao() -> str:
+    m = modo()
+    if m == "brevo":
+        return f"Brevo (API) · remetente {EMAIL_FROM or '⚠️ EMAIL_FROM vazio'}"
+    if m == "resend":
+        return f"Resend (API) · remetente {EMAIL_FROM or '⚠️ EMAIL_FROM vazio'}"
+    if m == "smtp":
+        return f"SMTP {SMTP_HOST}:{SMTP_PORT} como {SMTP_USER}"
+    return "não configurado"
+
+
+def _remetente() -> tuple[str, str]:
+    nome, end = parseaddr(EMAIL_FROM)
+    return (nome or "Assistente de Plano de Aula", end or SMTP_USER)
+
+
+def _enviar_brevo(destinatario: str, assunto: str, texto: str, html: str | None) -> None:
+    import requests
+    nome, end = _remetente()
+    if not end:
+        raise RuntimeError("Defina EMAIL_FROM com o e-mail validado no Brevo (Senders).")
+    body = {"sender": {"name": nome, "email": end}, "to": [{"email": destinatario}],
+            "subject": assunto, "textContent": texto}
+    if html:
+        body["htmlContent"] = html
+    r = requests.post("https://api.brevo.com/v3/smtp/email", json=body, timeout=30,
+                      headers={"api-key": BREVO_API_KEY, "Content-Type": "application/json", "accept": "application/json"})
+    if r.status_code >= 400:
+        try:
+            msg = r.json().get("message") or r.text
+        except Exception:
+            msg = r.text
+        if r.status_code == 401:
+            raise RuntimeError("Brevo recusou a chave (BREVO_API_KEY inválida).")
+        if "sender" in msg.lower():
+            raise RuntimeError(f"Brevo: o remetente {end} não está validado. Em Brevo → Senders, adicione e confirme esse e-mail.")
+        raise RuntimeError(f"Brevo: {msg[:200]}")
+
+
+def _enviar_resend(destinatario: str, assunto: str, texto: str, html: str | None) -> None:
+    import requests
+    nome, end = _remetente()
+    if not end:
+        raise RuntimeError("Defina EMAIL_FROM com um e-mail do domínio verificado no Resend.")
+    body = {"from": f"{nome} <{end}>", "to": [destinatario], "subject": assunto, "text": texto}
+    if html:
+        body["html"] = html
+    r = requests.post("https://api.resend.com/emails", json=body, timeout=30,
+                      headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"})
+    if r.status_code >= 400:
+        try:
+            msg = r.json().get("message") or r.text
+        except Exception:
+            msg = r.text
+        raise RuntimeError(f"Resend: {msg[:200]}")
 
 
 def enviar(destinatario: str, assunto: str, texto: str, html: str | None = None) -> None:
     """Envia o e-mail. Lança exceção com mensagem amigável em caso de falha."""
-    if not configurado():
-        raise RuntimeError("Servidor de e-mail não configurado (SMTP_HOST/SMTP_USER/SMTP_PASS).")
+    m = modo()
+    if not m:
+        raise RuntimeError("Envio de e-mail não configurado (BREVO_API_KEY ou SMTP_*).")
+    if m == "brevo":
+        return _enviar_brevo(destinatario, assunto, texto, html)
+    if m == "resend":
+        return _enviar_resend(destinatario, assunto, texto, html)
 
     msg = EmailMessage()
-    nome, end = parseaddr(SMTP_FROM)
-    msg["From"] = formataddr((nome or "Assistente de Plano de Aula", end or SMTP_USER))
+    msg["From"] = formataddr(_remetente())
     msg["To"] = destinatario
     msg["Subject"] = assunto
     msg.set_content(texto)
@@ -60,6 +143,9 @@ def enviar(destinatario: str, assunto: str, texto: str, html: str | None = None)
     except smtplib.SMTPRecipientsRefused:
         raise RuntimeError(f"O servidor recusou o destinatário {destinatario}.")
     except (smtplib.SMTPException, OSError) as e:
+        if "unreachable" in str(e).lower() or "timed out" in str(e).lower():
+            raise RuntimeError("A hospedagem bloqueia SMTP (Render gratuito). Use a API do Brevo: "
+                               "defina BREVO_API_KEY e EMAIL_FROM (veja USUARIOS-E-EMAIL.md).")
         raise RuntimeError(f"Falha ao enviar e-mail: {e}")
 
 

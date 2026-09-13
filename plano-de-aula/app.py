@@ -122,7 +122,7 @@ def healthz():
             linhas.append(f"ERRO tabela usuarios: {type(e).__name__}: {str(e)[:160]}")
     except Exception as e:  # noqa: BLE001
         linhas.append(f"ERRO banco de dados: {type(e).__name__}: {str(e)[:160]}")
-    linhas.append(f"{'OK ' if email_util.configurado() else 'AVISO'}  SMTP {'configurado' if email_util.configurado() else 'não configurado (links aparecerão na tela da supervisão)'}")
+    linhas.append(f"{'OK ' if email_util.configurado() else 'AVISO'}  E-mail: {email_util.descricao() if email_util.configurado() else 'não configurado (links aparecerão na tela da supervisão)'}")
     linhas.append(f"{'OK ' if auth.SUPERVISAO_EMAILS else 'AVISO'}  SUPERVISAO_EMAILS {'definido' if auth.SUPERVISAO_EMAILS else 'vazio'}")
     linhas.append(f"{'OK ' if PUBLIC_URL else 'AVISO'}  PUBLIC_URL {'definido' if PUBLIC_URL else 'vazio (usará o endereço da requisição)'}")
     try:
@@ -250,8 +250,8 @@ def diagnostico():
     cfg = carregar_config()
     linhas = {
         "Login por usuário": f"domínio {auth.dominio_msg()} · {len(db.usuarios_listar())} usuário(s) · {db.usuarios_total_supervisao()} supervisão",
-        "E-mail (SMTP)": (f"✅ {email_util.SMTP_HOST}:{email_util.SMTP_PORT} como {email_util.SMTP_USER}" if email_util.configurado()
-                          else "❌ não configurado (SMTP_HOST/SMTP_USER/SMTP_PASS) — links terão de ser repassados manualmente"),
+        "E-mail": (f"✅ {email_util.descricao()}" if email_util.configurado()
+                   else "❌ não configurado (BREVO_API_KEY + EMAIL_FROM) — links terão de ser repassados manualmente"),
         "SUPERVISAO_EMAILS": ", ".join(sorted(auth.SUPERVISAO_EMAILS)) or "— (nenhum; use SUPERVISAO_SENHA ou promova pela tela Usuários)",
         "SUPERVISAO_SENHA (emergência)": info_senha(SUPERVISAO_SENHA),
         "PUBLIC_URL": PUBLIC_URL or "⚠️ vazio (usará o endereço da requisição)",
@@ -652,6 +652,21 @@ def api_usuarios_excluir(id_):
         return jsonify({"erro": "Não é possível excluir a última conta de supervisão."}), 400
     db.usuario_excluir(id_)
     return jsonify({"ok": True})
+
+
+@app.route("/api/email/teste", methods=["POST"])
+def api_email_teste():
+    if not _e_supervisao():
+        return jsonify({"erro": "sem permissão"}), 403
+    dest = (request.get_json(silent=True) or {}).get("para") or _email_professor()
+    if not dest:
+        return jsonify({"erro": "Informe o destinatário."}), 400
+    try:
+        email_util.enviar(dest, "Teste — Assistente de Plano de Aula",
+                          "Este é um e-mail de teste. Se você o recebeu, o envio está funcionando.")
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"erro": str(e)}), 502
+    return jsonify({"ok": True, "modo": email_util.descricao()})
 
 
 @app.route("/api/usuarios/<int:id_>/reenviar", methods=["POST"])
