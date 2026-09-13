@@ -103,7 +103,49 @@ def _exigir_login():
 
 @app.route("/healthz")
 def healthz():
-    return "ok"
+    """Verificação pública (sem segredos): arquivos, banco e configuração básica."""
+    import importlib, traceback as tb
+    linhas = []
+    base = Path(__file__).parent
+    for f in ["auth.py", "email_util.py", "db.py", "drive.py", "gerador.py", "pdf.py",
+              "templates/login.html", "templates/index.html", "templates/historico.html",
+              "templates/conta.html", "templates/usuarios.html", "static/logo.png"]:
+        linhas.append(f"{'OK ' if (base / f).exists() else 'FALTA'}  {f}")
+    try:
+        with db.conexao() as con:
+            con.execute("SELECT 1")
+        linhas.append(f"OK   banco de dados ({'PostgreSQL' if db.USA_PG else 'SQLite local'})")
+        try:
+            n = len(db.usuarios_listar())
+            linhas.append(f"OK   tabela usuarios ({n} usuário(s))")
+        except Exception as e:  # noqa: BLE001
+            linhas.append(f"ERRO tabela usuarios: {type(e).__name__}: {str(e)[:160]}")
+    except Exception as e:  # noqa: BLE001
+        linhas.append(f"ERRO banco de dados: {type(e).__name__}: {str(e)[:160]}")
+    linhas.append(f"{'OK ' if email_util.configurado() else 'AVISO'}  SMTP {'configurado' if email_util.configurado() else 'não configurado (links aparecerão na tela da supervisão)'}")
+    linhas.append(f"{'OK ' if auth.SUPERVISAO_EMAILS else 'AVISO'}  SUPERVISAO_EMAILS {'definido' if auth.SUPERVISAO_EMAILS else 'vazio'}")
+    linhas.append(f"{'OK ' if PUBLIC_URL else 'AVISO'}  PUBLIC_URL {'definido' if PUBLIC_URL else 'vazio (usará o endereço da requisição)'}")
+    try:
+        render_template("login.html", modo="login", erro="", dominio=auth.dominio_msg(), email="", ok="")
+        linhas.append("OK   template login.html renderiza")
+    except Exception as e:  # noqa: BLE001
+        linhas.append(f"ERRO ao renderizar login.html: {type(e).__name__}: {str(e)[:160]}")
+    status = 200 if not any(l.startswith("ERRO") or l.startswith("FALTA") for l in linhas) else 500
+    return "<pre style='font:14px/1.6 monospace;padding:16px'>VERIFICAÇÃO DO SISTEMA\n\n" + "\n".join(linhas) + "</pre>", status
+
+
+@app.errorhandler(500)
+def _erro_500(e):
+    import traceback
+    tb = traceback.format_exc()
+    app.logger.error("ERRO 500 em %s\n%s", request.path, tb)
+    print("ERRO 500 em", request.path, "\n", tb, flush=True)
+    ultima = [l for l in tb.strip().splitlines() if l.strip()][-1] if tb.strip() and tb.strip() != "NoneType: None" else str(e)
+    return (f"<!doctype html><meta charset=utf-8><body style='font-family:Segoe UI,Arial;padding:28px;max-width:720px'>"
+            f"<h2>Ocorreu um erro no servidor</h2>"
+            f"<p style='background:#fdecec;border:1px solid #f3b4b4;padding:10px;border-radius:8px;font-family:monospace;font-size:13px'>{ultima}</p>"
+            f"<p>Abra <a href='/healthz'>/healthz</a> para ver a verificação do sistema. O detalhe completo está no log do servidor.</p>"
+            f"<p><a href='/login'>← Voltar</a></p>"), 500
 
 
 @app.route("/login", methods=["GET", "POST"])
