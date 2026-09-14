@@ -58,15 +58,17 @@
 
 
     <div class="stats" id="stats" style="display:none"></div>
-    {% if e_supervisao %}
-    <div id="bloco" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;background:#f2fbf4;border:1px solid #bfe3c9;border-radius:8px">
+    <div id="bloco" style="display:none;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;background:#f2fbf4;border:1px solid #bfe3c9;border-radius:8px">
+      {% if e_supervisao %}
       <button class="acao ok" id="btnBloco" onclick="vistoBloco()" disabled>✍ Dar visto nos selecionados (0)</button>
       <button class="acao" onclick="selPendentes()">Selecionar todos os pendentes da lista</button>
+      {% else %}
+      <span style="font-size:13px">Seus planos no Drive: <b id="driveResumo">…</b></span>
+      {% endif %}
       <span style="flex:1"></span>
-      <button class="acao" id="btnDriveTodos" onclick="driveTodos()" title="Envia ao Drive todos os planos que ainda não estão lá">▲ Enviar todos ao Drive</button>
+      <button class="acao" id="btnDriveTodos" onclick="driveTodos()" title="Envia ao Google Drive todos os planos que ainda não estão lá">▲ Enviar todos ao Drive</button>
       <span id="blocoMsg" style="font-size:12px;color:var(--muted)"></span>
     </div>
-    {% endif %}
 
     <div class="filtros">
       {% if e_supervisao %}
@@ -97,9 +99,14 @@ async function carregar(){
   const resp = await fetch('/api/historico?'+q); if(resp.status===401){ location.href='/login?next=/historico'; return; }
   const itens = await resp.json();
   if(!itens.length){ $('lista').innerHTML='<div class="vazio">Nenhum plano encontrado.</div>'; $('stats').style.display='none'; if($('bloco')) $('bloco').style.display='none'; return; }
+  $('bloco').style.display='flex';
+  if(!SUP){
+    const noDrive = itens.filter(i=>i.drive_link).length, falta = itens.length-noDrive;
+    $('driveResumo').textContent = `${noDrive} de ${itens.length}` + (falta?` (${falta} ainda não enviado${falta>1?'s':''})`:' ✔');
+    $('btnDriveTodos').style.display = falta ? '' : 'none';
+  }
   if(SUP){
     const vistos = itens.filter(i=>i.visto_em).length;
-    $('bloco').style.display='flex';
     $('stats').style.display='flex';
     $('stats').innerHTML = `<div class="stat"><b>${itens.length}</b>planos</div><div class="stat"><b>${vistos}</b>vistos pela supervisão</div><div class="stat"><b>${itens.length-vistos}</b>pendentes</div><div class="stat"><b>${new Set(itens.map(i=>i.professor.toLowerCase())).size}</b>professores</div>`;
   }
@@ -129,17 +136,22 @@ function selPendentes(){ selTodos(true); }
 async function vistoBloco(){
   const ids=[...document.querySelectorAll('.sel:checked')].map(c=>c.value); if(!ids.length) return;
   if(!confirm(`Dar o visto eletrônico em ${ids.length} plano(s)?\n\nCada um receberá seu nome, data/hora e código de verificação; ficarão travados para edição e os professores serão avisados por e-mail.`)) return;
-  const b=$('btnBloco'); b.disabled=true; b.textContent='Assinando…'; $('blocoMsg').textContent='';
-  const r=await fetch('/api/historico/visto-em-bloco',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids})}); const j=await r.json();
-  if(!r.ok){ alert(j.erro||'Erro'); atualizarBloco(); return; }
-  let m=`✔ ${j.feitos} plano(s) visado(s)` + (j.pulados?` · ${j.pulados} já estava(m) visado(s)`:'');
-  if(j.avisos.length) m += `\n\nObservações:\n- `+j.avisos.join('\n- ');
+  const b=$('btnBloco'); b.disabled=true; $('blocoMsg').textContent='';
+  let feitos=0, pulados=0, avisos=[];
+  for(let i=0;i<ids.length;i+=5){
+    b.textContent=`Assinando… ${Math.min(i+5,ids.length)} de ${ids.length}`;
+    const r=await fetch('/api/historico/visto-em-bloco',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:ids.slice(i,i+5)})});
+    const j=await r.json(); if(!r.ok){ alert(j.erro||'Erro'); break; }
+    feitos+=j.feitos; pulados+=j.pulados; avisos=avisos.concat(j.avisos);
+  }
+  let m=`✔ ${feitos} plano(s) visado(s)` + (pulados?` · ${pulados} já estava(m) visado(s)`:'');
+  if(avisos.length) m += `\n\nObservações:\n- `+avisos.join('\n- ');
   alert(m); carregar();
 }
 async function driveTodos(){
-  if(!confirm('Enviar ao Google Drive todos os planos que ainda não estão lá?\n\nCada PDF vai para a pasta do respectivo professor. Pode levar alguns minutos.')) return;
+  if(!confirm(SUP?'Enviar ao Google Drive todos os planos (de todos os professores) que ainda não estão lá?\n\nCada PDF vai para a pasta do respectivo professor. Pode levar alguns minutos.':'Enviar ao Google Drive todos os seus planos que ainda não estão lá?\n\nEles vão para a sua pasta. Pode levar alguns minutos.')) return;
   const b=$('btnDriveTodos'); b.disabled=true; let total=0, erros=[];
-  for(let rodada=0; rodada<20; rodada++){
+  for(let rodada=0; rodada<400; rodada++){
     b.textContent=`Enviando… (${total} feitos)`;
     const r=await fetch('/api/historico/drive-em-bloco',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}); const j=await r.json();
     if(!r.ok){ alert(j.erro||'Erro'); break; }

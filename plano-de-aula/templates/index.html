@@ -374,9 +374,14 @@ async function carregarDrive(){
          <label style="margin-top:6px">Trocar pasta raiz (nome novo ou link de uma pasta existente)</label>
          <div style="display:flex;gap:6px"><input id="drivePasta" placeholder="Ex.: Planos de Aula 2026 ou https://drive.google.com/drive/folders/..."><button class="link" onclick="salvarPastaDrive()">Aplicar</button></div>
          <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-weight:500"><input type="checkbox" id="driveAuto" ${st.auto?'checked':''} onchange="autoDrive()" style="width:auto">Enviar automaticamente ao baixar o PDF</label>
+         <label style="display:flex;align-items:center;gap:8px;margin-top:6px;font-weight:500"><input type="checkbox" id="driveVisto" ${st.visto_atualiza?'checked':''} onchange="vistoDrive()" style="width:auto">Ao dar o visto, atualizar o PDF que já está no Drive (com o carimbo)</label>
+         <p class="dica" style="margin-top:2px">O envio ao Drive é feito pelos professores (ao baixar ou por "Enviar todos ao Drive" no histórico). O visto não envia planos novos ao Drive.</p>
          <button class="link" style="margin-top:10px;color:var(--verm)" onclick="desconectarDrive()">Desconectar</button>`;
   }
   $('driveInfo').innerHTML = h;
+}
+async function vistoDrive(){
+  await fetch('/api/drive/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({visto_atualiza:$('driveVisto').checked})});
 }
 async function estruturaDrive(){
   await fetch('/api/drive/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({estrutura:$('driveEstrutura').value})}); carregarDrive();
