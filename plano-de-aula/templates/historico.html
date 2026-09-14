@@ -92,12 +92,12 @@ async function carregar(){
     $('stats').innerHTML = `<div class="stat"><b>${itens.length}</b>planos</div><div class="stat"><b>${vistos}</b>vistos pela supervisão</div><div class="stat"><b>${itens.length-vistos}</b>pendentes</div><div class="stat"><b>${new Set(itens.map(i=>i.professor.toLowerCase())).size}</b>professores</div>`;
   }
   $('lista').innerHTML = `<table><thead><tr>
-    <th>Gerado em</th><th>Professor(a)</th><th>Disciplina</th><th>Série</th><th>Tema</th><th>Semana</th><th>Drive</th>${SUP?'<th>Supervisão</th>':''}<th></th>
+    <th>Gerado em</th><th>Professor(a)</th><th>Disciplina</th><th>Série</th><th>Tema</th><th>Semana</th><th>Drive</th><th>Visto da supervisão</th><th></th>
   </tr></thead><tbody>${itens.map(i=>`<tr>
     <td style="white-space:nowrap">${fmt(i.criado_em)}</td><td>${esc(i.professor)}</td><td>${esc(i.disciplina)}</td><td>${esc(i.serie)}</td>
     <td>${esc(i.tema)}</td><td style="white-space:nowrap">${esc(i.data_ref)}</td>
     <td style="white-space:nowrap">${i.drive_link?`<a class="acao" href="${esc(i.drive_link)}" target="_blank" title="salvo em ${fmt(i.drive_em)}">▲ Abrir</a>`:`<button class="acao" onclick="enviarDrive(${i.id},this)">▲ Enviar</button>`}</td>
-    ${SUP?`<td>${i.visto_em?`<span class="visto">✔ visto ${fmt(i.visto_em)}</span> <button class="acao" onclick="visto(${i.id},true)" title="desfazer">↩</button>`:`<button class="acao ok" onclick="visto(${i.id},false)">Marcar visto</button>`}</td>`:''}
+    <td>${i.visto_em?`<span class="visto" title="Código ${esc(i.visto_codigo||'')}">✔ ${esc(i.visto_por||'Supervisão')}<br><small>${fmt(i.visto_em)}</small></span>${SUP?` <button class="acao" onclick="visto(${i.id},true)" title="Desfazer o visto (libera a edição)">↩</button>`:''}`:(SUP?`<button class="acao ok" onclick="visto(${i.id},false)">✍ Dar visto</button>`:`<span style="color:var(--muted);font-size:12px">Pendente</span>`)}</td>
     <td style="white-space:nowrap"><a class="acao" href="/?id=${i.id}">Abrir</a><a class="acao" href="/api/historico/${i.id}/pdf">PDF</a><button class="acao red" onclick="excluir(${i.id})">Excluir</button></td>
   </tr>`).join('')}</tbody></table>`;
 }
@@ -109,7 +109,14 @@ async function enviarDrive(id,btn){
 }
 async function excluir(id){ if(!confirm('Excluir este plano do histórico?')) return;
   await fetch('/api/historico/'+id,{method:'DELETE'}); carregar(); }
-async function visto(id,desfazer){ await fetch(`/api/historico/${id}/visto`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({desfazer})}); carregar(); }
+async function visto(id,desfazer){
+  if(desfazer){ if(!confirm('Desfazer o visto? O plano volta a ficar editável pelo professor.')) return; }
+  else if(!confirm('Dar o visto eletrônico neste plano?\n\nSeu nome, a data/hora e um código de verificação serão impressos na assinatura da supervisão no PDF, o plano ficará travado para edição e o professor será avisado por e-mail.')) return;
+  const r = await fetch(`/api/historico/${id}/visto`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({desfazer})});
+  const j = await r.json(); if(!r.ok){ alert(j.erro||'Erro'); return; }
+  if(j.aviso) alert(j.aviso);
+  carregar();
+}
 
 ['fDisc','fSerie'].forEach(i=>$(i).addEventListener('change',carregar));
 $('fBusca').addEventListener('keydown',e=>{if(e.key==='Enter')carregar()});

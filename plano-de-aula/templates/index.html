@@ -217,14 +217,20 @@ if(!$('professor').value) $('professor').value = localStorage.getItem('professor
   const r = await fetch('/api/historico/' + id);
   if (!r.ok) return;
   const it = await r.json();
-  estado = {id: it.id, dados: it.dados, plano: it.plano};
+  estado = {id: it.id, dados: it.dados, plano: it.plano, visto: it.visto_em ? {em: it.visto_em, por: it.visto_por, codigo: it.visto_codigo} : null};
   const d = it.dados;
   $('professor').value = d.professor || $('professor').value;
   $('conteudo').value = d.conteudo || ''; $('serie').value = d.serie || $('serie').value;
   if ([...$('disciplina').options].some(o => o.value === d.disciplina)) $('disciplina').value = d.disciplina;
   $('supervisao').value = d.supervisao || ''; $('direcao').value = d.direcao || '';
   renderizar();
-  $('msg').innerHTML = '<div class="aviso">Plano carregado do histórico. Edite e baixe o PDF, ou clique em "Gerar novamente" para uma nova versão.</div>';
+  if (estado.visto){
+    document.querySelectorAll('#preview [contenteditable]').forEach(el => { el.contentEditable = 'false'; el.classList.remove('ed'); });
+    $('dica').style.display = 'none';
+    $('msg').innerHTML = `<div class="aviso" style="background:#e8f5ec;border-color:#bfe3c9;color:#186a30">✔ Plano visado eletronicamente por <b>${esc(estado.visto.por||'Supervisão')}</b> em ${fmtDt(estado.visto.em)} (cód. ${esc(estado.visto.codigo||'')}). A edição está travada; baixe o PDF assinado. Para alterar, peça à supervisão para desfazer o visto.</div>`;
+  } else {
+    $('msg').innerHTML = '<div class="aviso">Plano carregado do histórico. Edite e baixe o PDF, ou clique em "Gerar novamente" para uma nova versão.</div>';
+  }
 })();
 
 $('disciplina').addEventListener('change', e => {
@@ -291,13 +297,18 @@ function renderizar(){
     <table>${bloco('AVALIAÇÃO:','avaliacao',50)}</table>
     <table>${bloco('FONTES / REFERÊNCIAS:','fontes',40)}</table>
     <table style="border:none;margin-top:28px"><tr>
-      ${['Professor(a)|professor','Supervisão Pedagógica|supervisao','Direção|direcao'].map(x=>{const [t,c]=x.split('|');return `<td style="border:none;text-align:center;font-size:11px;padding:0 6px">______________________________<br><b>${t}</b><br><span class="ed inline" contenteditable="true" data-dado="${c}">${esc(d[c]||'')}</span><br>Data: ____/____/______</td>`}).join('')}
+      ${['Professor(a)|professor','Supervisão Pedagógica|supervisao','Direção|direcao'].map(x=>{const [t,c]=x.split('|');
+        const v = estado.visto && c==='supervisao';
+        const selo = v ? `<div style="display:inline-block;border:1px solid #1b5e20;color:#1b5e20;font-size:10px;line-height:1.3;padding:3px 8px;margin-bottom:4px"><b>VISTO ELETRÔNICO</b><br><b>${esc(estado.visto.por||d.supervisao||'')}</b><br>em ${fmtDt(estado.visto.em)}<br>Cód. ${esc(estado.visto.codigo||'')}</div><br>` : '';
+        return `<td style="border:none;text-align:center;font-size:11px;padding:0 6px;vertical-align:bottom">${selo}______________________________<br><b>${t}</b><br><span class="ed inline" contenteditable="true" data-dado="${c}">${esc(v?(estado.visto.por||d[c]||''):(d[c]||''))}</span><br>Data: ${v?fmtDt(estado.visto.em).slice(0,10):'____/____/______'}</td>`}).join('')}
     </tr></table>
   </div>`;
   $('acoes').style.display='flex'; $('dica').style.display='block';
 }
 
+function fmtDt(t){ if(!t) return ''; const [d,h]=String(t).split(' '); const [a,m,dd]=d.split('-'); return `${dd}/${m}/${a}${h?' às '+h.slice(0,5):''}`; }
 function sincronizar(){
+  if (estado && estado.visto) return;   // plano visado: nada é alterado
   document.querySelectorAll('[data-campo]').forEach(el => estado.plano[el.dataset.campo] = el.innerText.trim());
   document.querySelectorAll('[data-dado]').forEach(el => estado.dados[el.dataset.dado] = el.innerText.trim());
 }
