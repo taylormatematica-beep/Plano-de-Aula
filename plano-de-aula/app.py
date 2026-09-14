@@ -304,12 +304,28 @@ def conta():
     return render_template("conta.html", u=u, erro=erro, ok=ok, e_supervisao=_e_supervisao())
 
 
-DISCIPLINAS = [
-    "Língua Portuguesa", "Literatura", "Redação", "Língua Inglesa", "Língua Espanhola", "Arte",
-    "Educação Física", "Matemática", "Física", "Química", "Biologia",
-    "História", "Geografia", "Filosofia", "Sociologia",
-    "Projeto de Vida", "Eletiva", "Estudo Orientado", "Tecnologia e Inovação",
-]
+# Componentes curriculares conforme as matrizes 2026 da escola (Integral Profissional)
+DISCIPLINAS_GRUPOS = {
+    "Formação Geral Básica": [
+        "Língua Portuguesa", "Língua Inglesa", "Arte", "Educação Física", "Matemática",
+        "Física", "Química", "Biologia", "História", "Geografia", "Filosofia", "Sociologia",
+    ],
+    "Parte Diversificada / Escola da Escolha": [
+        "Projeto de Vida", "Eletiva", "Estudos Orientados", "Práticas Experimentais",
+        "Nivelamento – Língua Portuguesa", "Nivelamento – Matemática",
+        "Cultura Digital e Fundamentos de IA", "Ferramentas para o Mundo do Trabalho",
+        "Projetos Integradores e de Corresponsabilidade Social (PICS)",
+        "Práticas de Leitura e Escrita",
+    ],
+    "Técnico – Automação Industrial (2º ano)": ["Automação Industrial III", "Automação Industrial IV"],
+    "Técnico – Mecatrônica (2º ano)": ["Mecatrônica III", "Mecatrônica IV"],
+    "Técnico – Desenvolvimento de Sistemas (3º ano)": [
+        "Conceitos Avançados em Arquitetura de Sistemas", "Desenvolvimento Back-end",
+        "Desenvolvimento de Aplicativos", "Desenvolvimento de Softwares", "Desenvolvimento Front-end II",
+        "Fundamentos de Segurança de Softwares", "Prática Profissional e Empreendedora",
+    ],
+}
+DISCIPLINAS = [d for grupo in DISCIPLINAS_GRUPOS.values() for d in grupo]
 SERIES = ["1º ano", "2º ano", "3º ano"]
 
 
@@ -333,6 +349,7 @@ def index():
     return render_template(
         "index.html",
         disciplinas=DISCIPLINAS,
+        disciplinas_grupos=DISCIPLINAS_GRUPOS,
         series=SERIES,
         hoje=fuso.hoje().isoformat(),
         ia_configurada=bool(cfg["api_key"]),
