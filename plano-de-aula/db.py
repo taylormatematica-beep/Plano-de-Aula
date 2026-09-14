@@ -128,20 +128,33 @@ def init():
 
 
 # ---------------------------------------------------------------- config chave/valor
+_cfg_cache: dict = {}
+_CFG_TTL = 30  # segundos — evita ir ao banco a cada clique para ler configurações que quase não mudam
+
+
 def config_get(chave: str, padrao: str = "") -> str:
+    import time as _t
+    hit = _cfg_cache.get(chave)
+    if hit and hit[1] > _t.time():
+        return hit[0] or padrao
     with conexao() as con:
         cur = con.execute(_q("SELECT valor FROM config WHERE chave=?"), (chave,))
         row = cur.fetchone()
-    return (row[0] if row else None) or padrao
+    val = (row[0] if row else None)
+    _cfg_cache[chave] = (val, _t.time() + _CFG_TTL)
+    return val or padrao
 
 
 def config_set(chave: str, valor: str):
+    _cfg_cache.pop(chave, None)
     with conexao() as con:
         con.execute(_q("INSERT INTO config (chave, valor) VALUES (?,?) "
                        "ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor"), (chave, valor))
 
 
 def config_del(*chaves: str):
+    for c in chaves:
+        _cfg_cache.pop(c, None)
     with conexao() as con:
         for c in chaves:
             con.execute(_q("DELETE FROM config WHERE chave=?"), (c,))

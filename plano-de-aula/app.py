@@ -28,7 +28,7 @@ app.config["JSON_AS_ASCII"] = False
 # Autenticação por usuário (e-mail institucional + senha)
 # ----------------------------------------------------------------------------
 import os, hmac  # noqa: E402
-from flask import redirect, session, url_for, abort  # noqa: E402
+from flask import redirect, session, url_for, abort, g  # noqa: E402
 import auth  # noqa: E402
 import email_util  # noqa: E402
 
@@ -66,13 +66,17 @@ def _base_url() -> str:
 
 
 def usuario_atual() -> dict | None:
+    """Usuário logado. Consulta o banco UMA vez por requisição (cache em flask.g)."""
     uid = session.get("uid")
     if not uid:
         return None
+    if "usuario_cache" in g and g.usuario_cache_id == uid:
+        return g.usuario_cache
     u = db.usuario_por_id(uid)
     if not u or not u.get("ativo", 1):
         session.clear()
         return None
+    g.usuario_cache, g.usuario_cache_id = u, uid
     return u
 
 
@@ -267,6 +271,8 @@ def diagnostico():
                               else "— não configurado (opcional)"),
         "Horário do sistema": f"{fuso.agora().strftime('%d/%m/%Y %H:%M')} ({fuso.FUSO.key}) · UTC do servidor: {__import__('datetime').datetime.now(__import__('datetime').timezone.utc).strftime('%H:%M')}",
         "Sessão atual": f"usuário: {_email_professor() or '—'} · supervisão: {'sim' if _e_supervisao() else 'não'}",
+        "Tempo de conexão ao banco": _medir_banco(),
+        "Servidor": f"{os.getenv('SERVER_SOFTWARE', '') or 'gunicorn'} · workers/threads conforme startCommand",
     }
     html = "".join(f"<tr><td style='padding:6px 12px;font-weight:600'>{k}</td><td style='padding:6px 12px'>{v}</td></tr>" for k, v in linhas.items())
     return (f"<!doctype html><meta charset=utf-8><title>Diagnóstico</title>"
@@ -463,6 +469,18 @@ def _codigo_visto(id_: int, quando: str) -> str:
     """Código curto de verificação (impresso no carimbo), derivado do plano + data/hora + chave secreta."""
     h = hashlib.sha256(f"{id_}|{quando}|{app.secret_key}".encode()).hexdigest().upper()
     return f"{h[:4]}-{h[4:8]}"
+
+
+def _medir_banco() -> str:
+    import time as _t
+    t0 = _t.time()
+    try:
+        with db.conexao() as con:
+            con.execute("SELECT 1")
+        ms = (_t.time() - t0) * 1000
+        return f"{ms:.0f} ms" + (" ⚠️ lento (banco distante ou sobrecarregado)" if ms > 400 else " ✅")
+    except Exception as e:  # noqa: BLE001
+        return f"❌ {e}"
 
 
 def _pode_ver(item: dict) -> bool:
