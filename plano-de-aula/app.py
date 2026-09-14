@@ -434,8 +434,17 @@ def api_pdf():
 
 def _enviar_drive(id_: int, dados: dict, plano: dict, pdf: bytes | None = None) -> dict:
     item = db.obter(id_) or {}
+    if item.get("visto_em"):
+        # plano visado: o Drive recebe sempre a versão assinada (com carimbo)
+        dados, plano = item["dados"], item["plano"]
+        pdf = gerar_pdf(dados, plano, _visto_de(item))
     pdf = pdf or gerar_pdf(dados, plano)
     d = dict(dados); d["_tema"] = plano.get("tema", "")
+    em = (item.get("professor_email") or dados.get("professor_email") or "").strip()
+    if em:
+        u = db.usuario_por_email(em)
+        if u and u.get("drive_pasta_id"):
+            d["_pasta_id"] = u["drive_pasta_id"]
     info = drive.enviar_pdf(pdf, d, file_id_existente=item.get("drive_file_id"))
     db.set_drive(id_, info["id"], info["link"])
     return info
@@ -551,6 +560,12 @@ def api_historico_visto(id_):
         item["dados"]["supervisao"] = por
         db.atualizar(id_, item["dados"], item["plano"])
     aviso = ""
+    # Drive: atualiza o PDF já enviado (ou envia, se o automático estiver ligado) com o carimbo do visto
+    try:
+        if drive.conectado() and (item.get("drive_file_id") or drive.status().get("auto")):
+            _enviar_drive(id_, item["dados"], item["plano"])
+    except Exception as e:  # noqa: BLE001
+        aviso = f"Visto registrado, mas não foi possível atualizar o PDF no Drive: {e}. "
     dest = (item.get("professor_email") or item["dados"].get("professor_email") or "").strip()
     if dest and email_util.configurado():
         try:
@@ -570,9 +585,9 @@ def api_historico_visto(id_):
                                                link, "Abrir plano assinado")
             email_util.enviar(dest, f"Plano de aula visado – {d.get('disciplina','')} – {d.get('data','')}", txt, html)
         except Exception as e:  # noqa: BLE001
-            aviso = f"Visto registrado, mas o e-mail ao professor falhou: {e}"
+            aviso += f"Visto registrado, mas o e-mail ao professor falhou: {e}"
     elif not dest:
-        aviso = "Visto registrado. O professor não tem e-mail cadastrado neste plano, então não foi avisado."
+        aviso += "Visto registrado. O professor não tem e-mail cadastrado neste plano, então não foi avisado."
     return jsonify({"ok": True, "visto_em": quando, "visto_por": por, "codigo": codigo, "aviso": aviso})
 
 
@@ -634,6 +649,8 @@ def api_drive_config():
     try:
         if "auto" in body:
             db.config_set("drive_auto", "1" if body["auto"] else "0")
+        if body.get("estrutura") in ("professor", "serie"):
+            db.config_set("drive_estrutura", body["estrutura"])
         if body.get("pasta") is not None and drive.conectado():
             drive.definir_pasta_raiz(body["pasta"])
     except Exception as e:  # noqa: BLE001
@@ -723,6 +740,10 @@ def api_usuarios_editar(id_):
         campos["perfil"] = body["perfil"]
     if "ativo" in body:
         campos["ativo"] = 1 if body["ativo"] else 0
+    if "drive_pasta" in body:
+        v = (body["drive_pasta"] or "").strip()
+        m = re.search(r"folders/([A-Za-z0-9_-]{10,})", v) or re.fullmatch(r"([A-Za-z0-9_-]{25,})", v)
+        campos["drive_pasta_id"] = m.group(1) if m else None
     # impede remover a última supervisão
     if (campos.get("perfil") == "professor" or campos.get("ativo") == 0) and u["perfil"] == "supervisao" \
             and db.usuarios_total_supervisao() <= 1 and not SUPERVISAO_SENHA:

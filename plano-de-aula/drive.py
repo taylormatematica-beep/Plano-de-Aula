@@ -25,7 +25,7 @@ import fuso
 
 CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
 CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
-SCOPE = "https://www.googleapis.com/auth/drive.file"  # só arquivos criados pelo app
+SCOPE = "https://www.googleapis.com/auth/drive"  # acesso ao Drive (necessário para usar as pastas já existentes dos professores)
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 API = "https://www.googleapis.com/drive/v3"
@@ -54,6 +54,8 @@ def status() -> dict:
         "pasta_raiz_nome": db.config_get("drive_pasta_nome", "Planos de Aula"),
         "pasta_raiz_link": db.config_get("drive_pasta_link"),
         "auto": db.config_get("drive_auto", "1") == "1",
+        "estrutura": db.config_get("drive_estrutura", "professor"),
+        "acesso_total": "auth/drive " in (db.config_get("drive_escopo", "") + " "),
     }
 
 
@@ -87,6 +89,7 @@ def trocar_codigo(code: str, redirect_uri: str) -> dict:
         raise RuntimeError("O Google não devolveu o refresh_token. Desconecte o app em "
                            "https://myaccount.google.com/permissions e tente novamente.")
     db.config_set("drive_refresh_token", tok["refresh_token"])
+    db.config_set("drive_escopo", tok.get("scope", ""))
     _token_cache.update(access=tok["access_token"], exp=time.time() + tok.get("expires_in", 3600) - 60)
     # e-mail da conta conectada
     try:
@@ -130,16 +133,50 @@ def _limpo(nome: str) -> str:
     return nome or "Sem nome"
 
 
-def _buscar_pasta(nome: str, pai: str | None) -> str | None:
-    esc = nome.replace("'", "\\'")
-    q = f"name = '{esc}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+def _norm(t: str) -> str:
+    t = unicodedata.normalize("NFKD", t or "").encode("ascii", "ignore").decode().lower()
+    return re.sub(r"[^a-z0-9]+", " ", t).strip()
+
+
+def _listar_subpastas(pai: str | None) -> list[dict]:
+    q = "mimeType = 'application/vnd.google-apps.folder' and trashed = false"
     q += f" and '{pai}' in parents" if pai else " and 'root' in parents"
-    r = requests.get(f"{API}/files", headers=_auth(),
-                     params={"q": q, "fields": "files(id,name)", "pageSize": 5,
-                             "supportsAllDrives": "true", "includeItemsFromAllDrives": "true"}, timeout=30)
-    r.raise_for_status()
-    files = r.json().get("files", [])
-    return files[0]["id"] if files else None
+    pastas, token = [], None
+    while True:
+        params = {"q": q, "fields": "nextPageToken,files(id,name)", "pageSize": 200,
+                  "supportsAllDrives": "true", "includeItemsFromAllDrives": "true"}
+        if token:
+            params["pageToken"] = token
+        r = requests.get(f"{API}/files", headers=_auth(), params=params, timeout=30)
+        r.raise_for_status()
+        j = r.json()
+        pastas += j.get("files", [])
+        token = j.get("nextPageToken")
+        if not token:
+            return pastas
+
+
+def _buscar_pasta(nome: str, pai: str | None) -> str | None:
+    """Procura a pasta pelo nome. Ignora acentos, maiúsculas e espaços extras
+    (ex.: 'ana lima' encontra 'Ana Lima'; 'Profª Ana Lima' também é aceita se contiver o nome)."""
+    alvo = _norm(nome)
+    pastas = _listar_subpastas(pai)
+    for f in pastas:                      # 1) igual
+        if _norm(f["name"]) == alvo:
+            return f["id"]
+    for f in pastas:                      # 2) pasta cujo nome contém o nome do professor (ou vice-versa)
+        n = _norm(f["name"])
+        if alvo and (alvo in n or (n and n in alvo)):
+            return f["id"]
+    return None
+
+
+def pasta_do_professor(nome: str, pasta_id_fixa: str | None = None) -> str:
+    """Pasta do professor dentro da raiz: usa o ID fixo (definido pela supervisão) ou localiza/cria pelo nome."""
+    if pasta_id_fixa:
+        return pasta_id_fixa
+    raiz, _ = pasta_raiz()
+    return _pasta(nome or "Sem nome", raiz)
 
 
 def _criar_pasta(nome: str, pai: str | None) -> str:
@@ -186,6 +223,11 @@ def definir_pasta_raiz(nome_ou_link: str):
         r = requests.get(f"{API}/files/{fid}", headers=_auth(),
                          params={"fields": "id,name", "supportsAllDrives": "true"}, timeout=30)
         if r.status_code != 200:
+            escopo = db.config_get("drive_escopo", "")
+            if "auth/drive " not in escopo + " ":
+                raise RuntimeError("A permissão concedida ao Google é limitada (só arquivos criados pelo app). "
+                                   "Clique em Desconectar, depois em Conectar Google Drive novamente e, na tela do Google, "
+                                   "aceite 'Ver, editar, criar e excluir todos os seus arquivos do Google Drive'.")
             raise RuntimeError("Não foi possível acessar essa pasta com a conta conectada. "
                                "Verifique se a pasta é da mesma conta ou foi compartilhada com ela como Editor.")
         db.config_set("drive_pasta_nome", r.json().get("name") or "Pasta")
@@ -216,11 +258,17 @@ def nome_arquivo(dados: dict) -> str:
 
 
 def enviar_pdf(pdf: bytes, dados: dict, file_id_existente: str | None = None) -> dict:
-    """Envia (ou atualiza) o PDF em  Raiz/Ano/Série/Disciplina/. Devolve {id, link, pasta_link}."""
-    raiz, _ = pasta_raiz()
-    p_ano = _pasta(_ano_letivo(dados.get("data", "")), raiz)
-    p_serie = _pasta(dados.get("serie", "Sem série"), p_ano)
-    p_disc = _pasta(dados.get("disciplina", "Sem disciplina"), p_serie)
+    """Envia (ou atualiza) o PDF. Estrutura conforme configuração:
+       - 'professor' (padrão): Raiz/<Pasta do professor>/arquivo.pdf
+       - 'serie':              Raiz/Ano/Série/Disciplina/arquivo.pdf
+       Devolve {id, link, pasta_link}."""
+    if db.config_get("drive_estrutura", "professor") == "professor":
+        p_disc = pasta_do_professor(dados.get("professor", ""), dados.get("_pasta_id"))
+    else:
+        raiz, _ = pasta_raiz()
+        p_ano = _pasta(_ano_letivo(dados.get("data", "")), raiz)
+        p_serie = _pasta(dados.get("serie", "Sem série"), p_ano)
+        p_disc = _pasta(dados.get("disciplina", "Sem disciplina"), p_serie)
 
     nome = _limpo(nome_arquivo(dados))
     meta = {"name": nome, "description": f"Tema: {dados.get('_tema','')} | Gerado pelo Assistente de Plano de Aula"}

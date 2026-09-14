@@ -1,22 +1,27 @@
 # Envio automático para o Google Drive
 
-Depois de configurado, **todo PDF baixado é salvo automaticamente** no Drive da escola:
+Depois de configurado, **todo PDF baixado é salvo automaticamente** no Drive da escola, **na pasta de cada professor**:
 
 ```
-Planos de Aula/
-└── 2026/
-    ├── 1º ano/
-    │   ├── História/
-    │   │   └── Plano de Aula - História - 1º ano - 21-09-2026 - Bruno Reis.pdf
-    │   └── Matemática/
-    └── 3º ano/
-        └── Matemática/
-            └── Plano de Aula - Matemática - 3º ano - 14-09-2026-a-18-09-2026 - Ana Lima.pdf
+Planos de Aula 2026/            ← pasta raiz (a que já existe na conta da escola)
+├── Ana Lima/                   ← pasta do professor (já existente ou criada pelo sistema)
+│   ├── Plano de Aula - Matemática - 3º ano - 14-09-2026 - Ana Lima.pdf
+│   └── Plano de Aula - Matemática - 2º ano - 14-09-2026 - Ana Lima.pdf
+└── Bruno Reis/
+    └── Plano de Aula - História - 1º ano - 21-09-2026 - Bruno Reis.pdf
 ```
+
+**Como o sistema acha a pasta do professor:** pelo nome cadastrado na conta dele, dentro da pasta raiz,
+ignorando acentos, maiúsculas e prefixos (ex.: "Profª Ana Lima" serve). Se não encontrar, cria.
+Se o nome da pasta for muito diferente, a supervisão cola o link da pasta na coluna **Pasta no Drive** em **Usuários**.
+
+Alternativa (⚙ Configurações → Organização das pastas): `Ano → Série → Disciplina`.
 
 - Se o professor editar e baixar de novo, o **mesmo arquivo é atualizado** (não duplica).
 - No histórico há um botão **▲ Abrir** (link direto no Drive) ou **▲ Enviar** (para planos antigos).
-- O app só tem acesso aos arquivos que ele mesmo criou (escopo `drive.file`) — não enxerga o restante do Drive.
+- Como as pastas dos professores já existem, o app pede permissão de acesso ao Drive da conta conectada (escopo `drive`).
+  Use uma conta da escola dedicada aos planos; a permissão pode ser revogada a qualquer momento em myaccount.google.com → Segurança.
+- **Compartilhamento:** os PDFs herdam as permissões da pasta. Se a pasta "Ana Lima" já está compartilhada com a Ana, ela vê os planos automaticamente.
 
 A configuração é feita **uma única vez** pela coordenação (~15 min) e usa a **conta Google da escola**.
 

@@ -106,6 +106,15 @@ def init():
             texto         TEXT NOT NULL
         )""")
         con.execute("CREATE INDEX IF NOT EXISTS idx_trechos_doc ON trechos(documento_id)")
+    for col in ("drive_pasta_id",):
+        try:
+            with conexao() as con:
+                if USA_PG:
+                    con.execute(f"ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS {col} TEXT")
+                else:
+                    con.execute(f"ALTER TABLE usuarios ADD COLUMN {col} TEXT")
+        except Exception:
+            pass
     # colunas adicionadas depois da 1ª versão (migração leve)
     for col in ("drive_file_id", "drive_link", "drive_em", "professor_email", "visto_codigo", "visto_email"):
         try:
@@ -263,7 +272,7 @@ def usuario_definir_senha(id_: int, senha_hash: str, nome: str | None = None):
 
 
 def usuario_atualizar(id_: int, **campos):
-    permitidos = {"nome", "perfil", "ativo"}
+    permitidos = {"nome", "perfil", "ativo", "drive_pasta_id"}
     campos = {k: v for k, v in campos.items() if k in permitidos}
     if not campos:
         return
@@ -286,7 +295,7 @@ def usuario_excluir(id_: int):
 def usuarios_listar() -> list[dict]:
     with conexao() as con:
         return _linhas(con.execute(
-            "SELECT id, email, nome, perfil, ativo, criado_em, ultimo_acesso, "
+            "SELECT id, email, nome, perfil, ativo, criado_em, ultimo_acesso, drive_pasta_id, "
             "CASE WHEN senha_hash IS NULL OR senha_hash='' THEN 0 ELSE 1 END AS tem_senha "
             "FROM usuarios ORDER BY nome, email"))
 
