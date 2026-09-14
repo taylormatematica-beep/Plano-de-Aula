@@ -26,6 +26,8 @@
   .acao{border:1px solid var(--borda);background:#fff;border-radius:6px;padding:5px 9px;cursor:pointer;font-size:13px;margin-right:4px;text-decoration:none;color:inherit;display:inline-block}
   .acao.red{color:var(--verm);border-color:#f3b4b4}
   .acao.ok{color:#186a30;border-color:#bfe3c9;background:#f2fbf4}
+  .acao.pdf{background:var(--verm);border-color:var(--verm);color:#fff;font-weight:600}
+  .acao.pdf:hover{background:#c40500}
   .visto{color:#186a30;font-size:12px;white-space:nowrap}
   .vazio{color:var(--muted);text-align:center;padding:50px 20px}
   .aviso{background:#fff7e6;border:1px solid #f5d38a;color:#7a4b00;padding:10px 12px;border-radius:8px;font-size:13px;margin-bottom:14px}
@@ -98,7 +100,7 @@ async function carregar(){
     <td>${esc(i.tema)}</td><td style="white-space:nowrap">${esc(i.data_ref)}</td>
     <td style="white-space:nowrap">${i.drive_link?`<a class="acao" href="${esc(i.drive_link)}" target="_blank" title="salvo em ${fmt(i.drive_em)}">▲ Abrir</a>`:`<button class="acao" onclick="enviarDrive(${i.id},this)">▲ Enviar</button>`}</td>
     <td>${i.visto_em?`<span class="visto" title="Código ${esc(i.visto_codigo||'')}">✔ ${esc(i.visto_por||'Supervisão')}<br><small>${fmt(i.visto_em)}</small></span>${SUP?` <button class="acao" onclick="visto(${i.id},true)" title="Desfazer o visto (libera a edição)">↩</button>`:''}`:(SUP?`<button class="acao ok" onclick="visto(${i.id},false)">✍ Dar visto</button>`:`<span style="color:var(--muted);font-size:12px">Pendente</span>`)}</td>
-    <td style="white-space:nowrap"><a class="acao" href="/?id=${i.id}">Abrir</a><a class="acao" href="/api/historico/${i.id}/pdf">PDF</a><button class="acao red" onclick="excluir(${i.id})">Excluir</button></td>
+    <td style="white-space:nowrap"><a class="acao" href="/?id=${i.id}">Abrir</a><a class="acao pdf" href="/api/historico/${i.id}/pdf">⬇ PDF</a><button class="acao red" onclick="excluir(${i.id})">Excluir</button></td>
   </tr>`).join('')}</tbody></table>`;
 }
 async function enviarDrive(id,btn){
