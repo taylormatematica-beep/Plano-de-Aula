@@ -137,6 +137,9 @@
     <details style="margin-top:8px">
       <summary style="cursor:pointer;font-size:13px;color:var(--muted)">Fontes de pesquisa da IA (todas marcadas por padrão)</summary>
       <div id="fontes" style="margin-top:8px;font-size:14px;line-height:1.9">
+        <label style="display:flex;gap:8px;align-items:flex-start;font-weight:500;margin:0 0 6px;padding-bottom:6px;border-bottom:1px dashed var(--borda)">
+          <input type="checkbox" id="incluirEf" checked style="width:auto;margin-top:6px"> <span>Citar habilidades correlatas do <b>Ensino Fundamental</b> (pré-requisitos)<br><small style="color:var(--muted);font-weight:400">Aparecem no quadro Habilidade e geram um momento de retomada/diagnóstico na metodologia.</small></span>
+        </label>
         {% for k, f in fontes.items() %}
         <label style="display:flex;gap:8px;align-items:flex-start;font-weight:500;margin:0">
           <input type="checkbox" class="fonte" value="{{ k }}" checked style="width:auto;margin-top:6px"> <span>{{ f.nome }}<br><small style="color:var(--muted);font-weight:400">{{ f.resumo }}</small></span>
@@ -247,6 +250,7 @@ function coletar(){
     disciplina: disc, conteudo: $('conteudo').value.trim(), data: $('data').value,
     data_fim: $('dataFim').value, serie: $('serie').value, aulas: $('aulas').value,
     supervisao: $('supervisao').value.trim(), observacoes: $('observacoes').value.trim(),
+    incluir_ef: $('incluirEf').checked,
     fontes: [...document.querySelectorAll('.fonte:checked')].map(x=>x.value),
     documentos: [...document.querySelectorAll('.doc:checked')].map(x=>x.value)
   };
@@ -289,7 +293,9 @@ function renderizar(){
     </table>
     <table>
       <tr><td><b>TEMA:</b> <span class="ed inline" contenteditable="true" data-campo="tema">${esc(p.tema)}</span></td></tr>
-      ${bloco('HABILIDADE DO PLANO DE CURSO:','habilidade',70)}
+      <tr><td><b>HABILIDADE DO PLANO DE CURSO:</b><div class="ed" contenteditable="true" data-campo="habilidade" style="min-height:50px">${esc(p.habilidade)}</div>
+        <div style="margin-top:6px;font-size:12px;font-weight:600;color:#444">Habilidades correlatas do Ensino Fundamental (pré-requisitos):</div>
+        <div class="ed" contenteditable="true" data-campo="habilidade_ef" style="min-height:24px;font-size:13px">${esc(p.habilidade_ef||'')}</div></td></tr>
       ${bloco('OBJETIVO DA APRENDIZAGEM:','objetivo',70)}
       ${bloco('METODOLOGIA (DESENVOLVIMENTO DA AULA):','metodologia',90)}
     </table>
