@@ -88,7 +88,9 @@
     <label for="disciplina">Matéria / Disciplina *</label>
     <select id="disciplina">
       <option value="">Selecione…</option>
-      {% for d in disciplinas %}<option>{{ d }}</option>{% endfor %}
+      {% for grupo, lista in disciplinas_grupos.items() %}<optgroup label="{{ grupo }}">
+        {% for d in lista %}<option>{{ d }}</option>{% endfor %}
+      </optgroup>{% endfor %}
       <option value="__outra">Outra…</option>
     </select>
     <input id="disciplinaOutra" placeholder="Digite a disciplina" style="display:none;margin-top:6px">
