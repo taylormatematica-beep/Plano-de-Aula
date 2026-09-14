@@ -82,11 +82,12 @@ function render(){
   const tot=dados.length, pend=dados.filter(u=>u.ativo&&!u.tem_senha).length, sup=dados.filter(u=>u.perfil==='supervisao').length;
   $('stats').innerHTML=`<div class="stat"><b>${tot}</b>usuários</div><div class="stat"><b>${tot-pend-dados.filter(u=>!u.ativo).length}</b>com senha</div><div class="stat"><b>${pend}</b>aguardando senha</div><div class="stat"><b>${sup}</b>supervisão</div>`;
   if(!itens.length){ $('lista').innerHTML='<p class="sub">Nenhum usuário.</p>'; return; }
-  $('lista').innerHTML=`<table><thead><tr><th>Nome</th><th>E-mail</th><th>Perfil</th><th>Situação</th><th>Último acesso</th><th></th></tr></thead><tbody>${itens.map(u=>{const [s,t]=status(u);return `<tr>
+  $('lista').innerHTML=`<table><thead><tr><th>Nome</th><th>E-mail</th><th>Perfil</th><th>Situação</th><th>Último acesso</th><th title="Opcional: link da pasta do professor no Drive. Se vazio, o sistema procura/cria a pasta pelo nome.">Pasta no Drive</th><th></th></tr></thead><tbody>${itens.map(u=>{const [s,t]=status(u);return `<tr>
     <td><input class="nome-ed" value="${esc(u.nome)}" onchange="editar(${u.id},{nome:this.value})" title="clique para editar"></td>
     <td>${esc(u.email)}</td>
     <td><select style="padding:3px 6px;width:auto;font-size:13px" onchange="editar(${u.id},{perfil:this.value})"><option value="professor" ${u.perfil==='professor'?'selected':''}>Professor(a)</option><option value="supervisao" ${u.perfil==='supervisao'?'selected':''}>Supervisão</option></select></td>
     <td><span class="st ${s}">${t}</span></td>
+    <td>${u.drive_pasta_id?`<a href="https://drive.google.com/drive/folders/${esc(u.drive_pasta_id)}" target="_blank" style="font-size:12px">▲ abrir</a> <button class="acao" style="font-size:11px" onclick="editar(${u.id},{drive_pasta:''})" title="remover vínculo; volta a buscar pelo nome">✕</button>`:`<input class="nome-ed" style="font-size:12px;width:130px" placeholder="colar link (opcional)" onchange="editar(${u.id},{drive_pasta:this.value})" title="Cole o link da pasta do professor no Drive. Vazio = buscar pelo nome.">`}</td>
     <td style="white-space:nowrap;font-size:13px">${fmt(u.ultimo_acesso)}</td>
     <td style="white-space:nowrap">
       <button class="acao" onclick="reenviar(${u.id},this)">${u.tem_senha?'Redefinir senha':'Reenviar link'}</button>

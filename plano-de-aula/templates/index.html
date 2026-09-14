@@ -364,13 +364,23 @@ async function carregarDrive(){
          <p class="dica">URI de redirecionamento cadastrada no Google Cloud deve ser exatamente:<br><code style="user-select:all">${esc(st.redirect_uri)}</code></p>`;
   } else {
     h = `<p class="ok">✔ Conectado como <b>${esc(st.conta||'conta Google')}</b></p>
-         <p>Pasta raiz: <a href="${esc(st.pasta_raiz_link)}" target="_blank"><b>${esc(st.pasta_raiz_nome)}</b></a> → Ano → Série → Disciplina</p>
+         ${st.acesso_total?'':'<p class="warn">⚠ A permissão concedida é limitada (só arquivos criados pelo app). Para usar as pastas já existentes dos professores, clique em <b>Desconectar</b> e depois em <b>Conectar Google Drive</b> novamente, aceitando o acesso completo ao Drive.</p>'}
+         <p>Pasta raiz: <a href="${esc(st.pasta_raiz_link)}" target="_blank"><b>${esc(st.pasta_raiz_nome)}</b></a> → ${st.estrutura==='professor'?'<b>Pasta de cada professor</b> → arquivos':'Ano → Série → Disciplina'}</p>
+         <label style="margin-top:6px">Organização das pastas</label>
+         <select id="driveEstrutura" onchange="estruturaDrive()" style="width:auto">
+           <option value="professor" ${st.estrutura==='professor'?'selected':''}>Uma pasta por professor (dentro da pasta raiz)</option>
+           <option value="serie" ${st.estrutura==='serie'?'selected':''}>Ano → Série → Disciplina</option>
+         </select>
+         <p class="dica" style="margin-top:4px">Por professor: o sistema localiza a pasta com o nome do professor dentro da raiz (ignora acentos/maiúsculas) e cria se não existir. Para nomes diferentes, cole o link da pasta em <a href="/usuarios">Usuários</a>.</p>
          <label style="margin-top:6px">Trocar pasta raiz (nome novo ou link de uma pasta existente)</label>
          <div style="display:flex;gap:6px"><input id="drivePasta" placeholder="Ex.: Planos de Aula 2026 ou https://drive.google.com/drive/folders/..."><button class="link" onclick="salvarPastaDrive()">Aplicar</button></div>
          <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-weight:500"><input type="checkbox" id="driveAuto" ${st.auto?'checked':''} onchange="autoDrive()" style="width:auto">Enviar automaticamente ao baixar o PDF</label>
          <button class="link" style="margin-top:10px;color:var(--verm)" onclick="desconectarDrive()">Desconectar</button>`;
   }
   $('driveInfo').innerHTML = h;
+}
+async function estruturaDrive(){
+  await fetch('/api/drive/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({estrutura:$('driveEstrutura').value})}); carregarDrive();
 }
 async function salvarPastaDrive(){
   const r = await fetch('/api/drive/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pasta:$('drivePasta').value})});
