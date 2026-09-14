@@ -56,6 +56,7 @@ def status() -> dict:
         "auto": db.config_get("drive_auto", "1") == "1",
         "estrutura": db.config_get("drive_estrutura", "professor"),
         "acesso_total": "auth/drive " in (db.config_get("drive_escopo", "") + " "),
+        "visto_atualiza": db.config_get("drive_visto_atualiza", "1") == "1",
     }
 
 

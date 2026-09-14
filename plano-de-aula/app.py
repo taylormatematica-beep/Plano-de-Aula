@@ -536,10 +536,12 @@ def api_historico_excluir(id_):
     return jsonify({"ok": True})
 
 
-def _dar_visto(item: dict) -> dict:
-    """Aplica o visto eletrônico em um plano: grava, atualiza Drive e avisa o professor. Devolve {ok, codigo, aviso}."""
+def _dar_visto(item: dict, usuario: dict | None = None, base_url: str | None = None) -> dict:
+    """Aplica o visto eletrônico em um plano: grava, atualiza Drive e avisa o professor. Devolve {ok, codigo, aviso}.
+    (usuario e base_url são passados explicitamente quando chamado fora da requisição, ex.: em threads)"""
     id_ = item["id"]
-    u = usuario_atual() or {}
+    u = usuario if usuario is not None else (usuario_atual() or {})
+    base_url = base_url or PUBLIC_URL or _base_url()
     por = (u.get("nome") or "").strip() or SUPERVISAO_NOME or "Supervisão Pedagógica"
     quando = fuso.agora_txt()
     codigo = _codigo_visto(id_, quando)
@@ -550,8 +552,10 @@ def _dar_visto(item: dict) -> dict:
         item["dados"]["supervisao"] = por
         db.atualizar(id_, item["dados"], item["plano"])
     aviso = ""
+    # Drive: quem envia é o professor. Aqui só atualizamos o arquivo que JÁ está no Drive (para receber o carimbo),
+    # e apenas se a opção "atualizar no Drive ao dar visto" estiver ligada (padrão: ligada).
     try:
-        if drive.conectado() and (item.get("drive_file_id") or drive.status().get("auto")):
+        if item.get("drive_file_id") and drive.conectado() and db.config_get("drive_visto_atualiza", "1") == "1":
             _enviar_drive(id_, item["dados"], item["plano"])
     except Exception as e:  # noqa: BLE001
         aviso = f"não foi possível atualizar o PDF no Drive ({e}). "
@@ -559,7 +563,7 @@ def _dar_visto(item: dict) -> dict:
     if dest and email_util.configurado():
         try:
             d = item["dados"]
-            link = _base_url() + f"/?id={id_}"
+            link = base_url + f"/?id={id_}"
             dt = datetime.strptime(quando[:19], "%Y-%m-%d %H:%M:%S").strftime("%d/%m/%Y às %H:%M")
             txt = (f"Olá, {d.get('professor','')}!\n\nSeu plano de aula de {d.get('disciplina','')} ({d.get('serie','')}), "
                    f"semana {d.get('data','')}, tema \"{item['plano'].get('tema','')}\", recebeu o visto eletrônico da supervisão.\n\n"
@@ -600,50 +604,76 @@ def api_historico_visto(id_):
 
 @app.route("/api/historico/visto-em-bloco", methods=["POST"])
 def api_historico_visto_bloco():
-    """Assina vários planos de uma vez. body: {ids: [..]}"""
+    """Assina vários planos de uma vez. body: {ids: [..]}.
+    Processa no máximo 5 por chamada, em paralelo (o navegador repete até terminar) — evita estourar o tempo do servidor."""
     if not _e_supervisao():
         return jsonify({"erro": "sem permissão"}), 403
     body = request.get_json(silent=True) or {}
-    ids = [int(x) for x in body.get("ids", []) if str(x).isdigit()][:200]
-    feitos, pulados, avisos = 0, 0, []
+    ids = [int(x) for x in body.get("ids", []) if str(x).isdigit()][:5]
+    u = usuario_atual() or {}
+    base_url = PUBLIC_URL or _base_url()
+    itens = []
+    pulados = 0
     for id_ in ids:
         item = db.obter(id_)
         if not item or item.get("visto_em"):
             pulados += 1
-            continue
-        try:
-            r = _dar_visto(item)
-            feitos += 1
-            if r["aviso"]:
-                avisos.append(f"#{id_} {item['professor']}: {r['aviso']}")
-        except Exception as e:  # noqa: BLE001
-            avisos.append(f"#{id_}: falhou ({e})")
+        else:
+            itens.append(item)
+    feitos, avisos = 0, []
+    from concurrent.futures import ThreadPoolExecutor
+
+    def trabalho(item):
+        return item, _dar_visto(item, usuario=u, base_url=base_url)
+
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        for fut in [ex.submit(trabalho, it) for it in itens]:
+            try:
+                item, r = fut.result()
+                feitos += 1
+                if r["aviso"]:
+                    avisos.append(f"#{item['id']} {item['professor']}: {r['aviso']}")
+            except Exception as e:  # noqa: BLE001
+                avisos.append(f"falhou ({e})")
     return jsonify({"ok": True, "feitos": feitos, "pulados": pulados, "avisos": avisos})
+
+
+def _planos_visiveis(limite: int = 2000) -> list[dict]:
+    """Planos que o usuário atual pode ver (todos para supervisão; só os seus para professor)."""
+    if _e_supervisao():
+        return db.listar(limite=limite)
+    return db.listar(professor=_nome_professor(), professor_email=_email_professor() or None, limite=limite)
 
 
 @app.route("/api/historico/drive-em-bloco", methods=["POST"])
 def api_historico_drive_bloco():
-    """Envia ao Drive todos os planos ainda não enviados (ou os ids informados)."""
-    if not _e_supervisao():
-        return jsonify({"erro": "sem permissão"}), 403
+    """Envia ao Drive todos os planos ainda não enviados: o professor envia os dele; a supervisão, todos."""
     if not drive.conectado():
-        return jsonify({"erro": "Google Drive não conectado."}), 400
+        return jsonify({"erro": "Google Drive não conectado. Peça à supervisão para conectar em Configurações."}), 400
     body = request.get_json(silent=True) or {}
-    ids = [int(x) for x in body.get("ids", []) if str(x).isdigit()]
+    permitidos = {i["id"] for i in _planos_visiveis()}
+    ids = [int(x) for x in body.get("ids", []) if str(x).isdigit() and int(x) in permitidos]
     if not ids:
-        ids = [i["id"] for i in db.listar(limite=2000) if not i.get("drive_link")]
-    ids = ids[:150]   # limite por chamada (o navegador repete se sobrar)
+        ids = [i["id"] for i in _planos_visiveis() if not i.get("drive_link")]
+    ids = ids[:5]   # lote pequeno por chamada (o navegador repete até acabar)
     feitos, erros = 0, []
-    for id_ in ids:
+    from concurrent.futures import ThreadPoolExecutor
+
+    def trabalho(id_):
         item = db.obter(id_)
-        if not item:
-            continue
-        try:
+        if item:
             _enviar_drive(id_, item["dados"], item["plano"])
-            feitos += 1
-        except Exception as e:  # noqa: BLE001
-            erros.append(f"#{id_} {item['professor']}: {e}")
-    restantes = len([i for i in db.listar(limite=2000) if not i.get("drive_link")])
+        return item
+
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        futs = {ex.submit(trabalho, i): i for i in ids}
+        for fut, id_ in futs.items():
+            try:
+                if fut.result():
+                    feitos += 1
+            except Exception as e:  # noqa: BLE001
+                erros.append(f"#{id_}: {e}")
+    restantes = len([i for i in _planos_visiveis() if not i.get("drive_link")])
     return jsonify({"ok": True, "feitos": feitos, "erros": erros, "restantes": restantes})
 
 
@@ -707,6 +737,8 @@ def api_drive_config():
             db.config_set("drive_auto", "1" if body["auto"] else "0")
         if body.get("estrutura") in ("professor", "serie"):
             db.config_set("drive_estrutura", body["estrutura"])
+        if "visto_atualiza" in body:
+            db.config_set("drive_visto_atualiza", "1" if body["visto_atualiza"] else "0")
         if body.get("pasta") is not None and drive.conectado():
             drive.definir_pasta_raiz(body["pasta"])
     except Exception as e:  # noqa: BLE001
