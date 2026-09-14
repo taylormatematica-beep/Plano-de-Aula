@@ -58,6 +58,15 @@
 
 
     <div class="stats" id="stats" style="display:none"></div>
+    {% if e_supervisao %}
+    <div id="bloco" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;background:#f2fbf4;border:1px solid #bfe3c9;border-radius:8px">
+      <button class="acao ok" id="btnBloco" onclick="vistoBloco()" disabled>✍ Dar visto nos selecionados (0)</button>
+      <button class="acao" onclick="selPendentes()">Selecionar todos os pendentes da lista</button>
+      <span style="flex:1"></span>
+      <button class="acao" id="btnDriveTodos" onclick="driveTodos()" title="Envia ao Drive todos os planos que ainda não estão lá">▲ Enviar todos ao Drive</button>
+      <span id="blocoMsg" style="font-size:12px;color:var(--muted)"></span>
+    </div>
+    {% endif %}
 
     <div class="filtros">
       {% if e_supervisao %}
@@ -87,21 +96,24 @@ async function carregar(){
   const q = new URLSearchParams({professor:prof, disciplina:$('fDisc').value, serie:$('fSerie').value, busca:$('fBusca').value.trim()});
   const resp = await fetch('/api/historico?'+q); if(resp.status===401){ location.href='/login?next=/historico'; return; }
   const itens = await resp.json();
-  if(!itens.length){ $('lista').innerHTML='<div class="vazio">Nenhum plano encontrado.</div>'; $('stats').style.display='none'; return; }
+  if(!itens.length){ $('lista').innerHTML='<div class="vazio">Nenhum plano encontrado.</div>'; $('stats').style.display='none'; if($('bloco')) $('bloco').style.display='none'; return; }
   if(SUP){
     const vistos = itens.filter(i=>i.visto_em).length;
+    $('bloco').style.display='flex';
     $('stats').style.display='flex';
     $('stats').innerHTML = `<div class="stat"><b>${itens.length}</b>planos</div><div class="stat"><b>${vistos}</b>vistos pela supervisão</div><div class="stat"><b>${itens.length-vistos}</b>pendentes</div><div class="stat"><b>${new Set(itens.map(i=>i.professor.toLowerCase())).size}</b>professores</div>`;
   }
   $('lista').innerHTML = `<table><thead><tr>
-    <th>Gerado em</th><th>Professor(a)</th><th>Disciplina</th><th>Série</th><th>Tema</th><th>Semana</th><th>Drive</th><th>Visto da supervisão</th><th></th>
+    ${SUP?'<th><input type="checkbox" id="selTodos" onchange="selTodos(this.checked)" title="Selecionar todos os pendentes"></th>':''}<th>Gerado em</th><th>Professor(a)</th><th>Disciplina</th><th>Série</th><th>Tema</th><th>Semana</th><th>Drive</th><th>Visto da supervisão</th><th></th>
   </tr></thead><tbody>${itens.map(i=>`<tr>
+    ${SUP?`<td>${i.visto_em?'':`<input type="checkbox" class="sel" value="${i.id}" onchange="atualizarBloco()">`}</td>`:''}
     <td style="white-space:nowrap">${fmt(i.criado_em)}</td><td>${esc(i.professor)}</td><td>${esc(i.disciplina)}</td><td>${esc(i.serie)}</td>
     <td>${esc(i.tema)}</td><td style="white-space:nowrap">${esc(i.data_ref)}</td>
     <td style="white-space:nowrap">${i.drive_link?`<a class="acao" href="${esc(i.drive_link)}" target="_blank" title="salvo em ${fmt(i.drive_em)}">▲ Abrir</a>`:`<button class="acao" onclick="enviarDrive(${i.id},this)">▲ Enviar</button>`}</td>
     <td>${i.visto_em?`<span class="visto" title="Código ${esc(i.visto_codigo||'')}">✔ ${esc(i.visto_por||'Supervisão')}<br><small>${fmt(i.visto_em)}</small></span>${SUP?` <button class="acao" onclick="visto(${i.id},true)" title="Desfazer o visto (libera a edição)">↩</button>`:''}`:(SUP?`<button class="acao ok" onclick="visto(${i.id},false)">✍ Dar visto</button>`:`<span style="color:var(--muted);font-size:12px">Pendente</span>`)}</td>
     <td style="white-space:nowrap"><a class="acao" href="/?id=${i.id}">Abrir</a><a class="acao pdf" href="/api/historico/${i.id}/pdf">⬇ PDF</a><button class="acao red" onclick="excluir(${i.id})">Excluir</button></td>
   </tr>`).join('')}</tbody></table>`;
+  atualizarBloco();
 }
 async function enviarDrive(id,btn){
   btn.disabled=true; btn.textContent='Enviando…';
@@ -111,6 +123,32 @@ async function enviarDrive(id,btn){
 }
 async function excluir(id){ if(!confirm('Excluir este plano do histórico?')) return;
   await fetch('/api/historico/'+id,{method:'DELETE'}); carregar(); }
+function atualizarBloco(){ const n=document.querySelectorAll('.sel:checked').length; const b=$('btnBloco'); if(!b) return; b.disabled=!n; b.textContent=`✍ Dar visto nos selecionados (${n})`; }
+function selTodos(v){ document.querySelectorAll('.sel').forEach(c=>c.checked=v); atualizarBloco(); }
+function selPendentes(){ selTodos(true); }
+async function vistoBloco(){
+  const ids=[...document.querySelectorAll('.sel:checked')].map(c=>c.value); if(!ids.length) return;
+  if(!confirm(`Dar o visto eletrônico em ${ids.length} plano(s)?\n\nCada um receberá seu nome, data/hora e código de verificação; ficarão travados para edição e os professores serão avisados por e-mail.`)) return;
+  const b=$('btnBloco'); b.disabled=true; b.textContent='Assinando…'; $('blocoMsg').textContent='';
+  const r=await fetch('/api/historico/visto-em-bloco',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids})}); const j=await r.json();
+  if(!r.ok){ alert(j.erro||'Erro'); atualizarBloco(); return; }
+  let m=`✔ ${j.feitos} plano(s) visado(s)` + (j.pulados?` · ${j.pulados} já estava(m) visado(s)`:'');
+  if(j.avisos.length) m += `\n\nObservações:\n- `+j.avisos.join('\n- ');
+  alert(m); carregar();
+}
+async function driveTodos(){
+  if(!confirm('Enviar ao Google Drive todos os planos que ainda não estão lá?\n\nCada PDF vai para a pasta do respectivo professor. Pode levar alguns minutos.')) return;
+  const b=$('btnDriveTodos'); b.disabled=true; let total=0, erros=[];
+  for(let rodada=0; rodada<20; rodada++){
+    b.textContent=`Enviando… (${total} feitos)`;
+    const r=await fetch('/api/historico/drive-em-bloco',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}); const j=await r.json();
+    if(!r.ok){ alert(j.erro||'Erro'); break; }
+    total+=j.feitos; erros=erros.concat(j.erros);
+    if(!j.restantes || j.feitos===0) break;
+  }
+  b.disabled=false; b.textContent='▲ Enviar todos ao Drive';
+  alert(`✔ ${total} plano(s) enviado(s) ao Drive` + (erros.length?`\n\nFalhas:\n- `+erros.join('\n- '):'')); carregar();
+}
 async function visto(id,desfazer){
   if(desfazer){ if(!confirm('Desfazer o visto? O plano volta a ficar editável pelo professor.')) return; }
   else if(!confirm('Dar o visto eletrônico neste plano?\n\nSeu nome, a data/hora e um código de verificação serão impressos na assinatura da supervisão no PDF, o plano ficará travado para edição e o professor será avisado por e-mail.')) return;

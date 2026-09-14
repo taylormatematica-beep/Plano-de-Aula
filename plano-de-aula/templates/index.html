@@ -130,8 +130,7 @@
       <summary style="cursor:pointer;font-size:13px;color:var(--muted)">Campos opcionais (supervisão, observações)</summary>
       <label for="supervisao">Supervisão</label>
       <input id="supervisao" placeholder="Nome do(a) supervisor(a) pedagógico(a)" value="{{ supervisao_nome }}">
-      <label for="direcao">Direção</label>
-      <input id="direcao" placeholder="Nome do(a) diretor(a)" value="{{ direcao_nome }}">
+      <input id="direcao" type="hidden" value="">
       <label for="observacoes">Observações para a IA</label>
       <textarea id="observacoes" placeholder="Ex.: turma com dificuldade em leitura; usar laboratório; incluir revisão para o ENEM…"></textarea>
     </details>
@@ -305,7 +304,7 @@ function renderizar(){
     <table>${bloco('AVALIAÇÃO:','avaliacao',50)}</table>
     <table>${bloco('FONTES / REFERÊNCIAS:','fontes',40)}</table>
     <table style="border:none;margin-top:28px"><tr>
-      ${['Professor(a)|professor','Supervisão Pedagógica|supervisao','Direção|direcao'].map(x=>{const [t,c]=x.split('|');
+      ${['Professor(a)|professor','Supervisão Pedagógica|supervisao'].map(x=>{const [t,c]=x.split('|');
         const v = estado.visto && c==='supervisao';
         const selo = v ? `<div style="display:inline-block;border:1px solid #1b5e20;color:#1b5e20;font-size:10px;line-height:1.3;padding:3px 8px;margin-bottom:4px"><b>VISTO ELETRÔNICO</b><br><b>${esc(estado.visto.por||d.supervisao||'')}</b><br>em ${fmtDt(estado.visto.em)}<br>Cód. ${esc(estado.visto.codigo||'')}</div><br>` : '';
         return `<td style="border:none;text-align:center;font-size:11px;padding:0 6px;vertical-align:bottom">${selo}______________________________<br><b>${t}</b><br><span class="ed inline" contenteditable="true" data-dado="${c}">${esc(v?(estado.visto.por||d[c]||''):(d[c]||''))}</span><br>Data: ${v?fmtDt(estado.visto.em).slice(0,10):'____/____/______'}</td>`}).join('')}
