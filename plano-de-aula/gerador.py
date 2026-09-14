@@ -22,7 +22,7 @@ import requests
 BASE_DIR = Path(__file__).parent
 CONFIG_FILE = BASE_DIR / "config.json"
 
-CAMPOS = ["habilidade", "objetivo", "metodologia", "recursos", "avaliacao", "fontes"]
+CAMPOS = ["habilidade", "habilidade_ef", "objetivo", "metodologia", "recursos", "avaliacao", "fontes"]
 
 
 # --------------------------------------------------------------------------- #
@@ -84,6 +84,8 @@ Retorne um JSON com exatamente estas chaves (todas strings):
 
 "habilidade": 1 a 3 habilidades da BNCC do Ensino Médio pertinentes ao conteúdo, cada uma em uma linha, no formato "(CÓDIGO) descrição oficial". Use códigos reais da BNCC (ex.: EM13MAT302, EM13LGG103, EM13CNT101, EM13CHS102). Separe as habilidades com quebra de linha. REGRAS ESPECIAIS: (a) componentes de curso técnico (Automação Industrial, Mecatrônica, Desenvolvimento Back-end/Front-end/de Aplicativos/de Softwares, Arquitetura de Sistemas, Segurança de Softwares, Prática Profissional e Empreendedora): NÃO invente códigos BNCC; escreva as competências/habilidades profissionais do Catálogo Nacional de Cursos Técnicos e do plano de curso do eixo tecnológico, e, se couber, 1 habilidade geral da BNCC relacionada (ex.: EM13MAT ou EM13LGG); (b) Nivelamento – Língua Portuguesa / Matemática: use habilidades do Ensino Fundamental anos finais (códigos EF0xLP / EF0xMA) que estão sendo recuperadas, ligadas às do EM; (c) Projeto de Vida, Eletiva, Estudos Orientados, Práticas Experimentais, PICS, Cultura Digital e Fundamentos de IA, Ferramentas para o Mundo do Trabalho e Práticas de Leitura e Escrita: use as Competências Gerais da BNCC (1 a 10) e os princípios da Escola da Escolha, além de habilidades específicas quando houver.
 
+"habilidade_ef": {instrucao_ef}
+
 "objetivo": objetivos de aprendizagem em 3 a 5 itens, cada item iniciado com "• " e com verbo no infinitivo (compreender, analisar, resolver, produzir...). Um item por linha.
 
 "metodologia": desenvolvimento detalhado da(s) aula(s), organizado por momentos, no formato:
@@ -101,9 +103,36 @@ Se houver mais de uma aula na semana, organize por "AULA 1", "AULA 2" etc., cada
 Seja específico para o conteúdo informado: cite exemplos, exercícios, textos, experimentos ou situações concretas relacionadas ao tema. Não use marcadores markdown (**, #, -). Use apenas "• " para listas."""
 
 
+INSTRUCAO_EF_ON = ('1 a 3 habilidades do ENSINO FUNDAMENTAL (anos finais, BNCC) que são PRÉ-REQUISITO ou correlatas do conteúdo desta aula, uma por linha, no formato "(CÓDIGO) descrição oficial resumida". Use códigos reais e no formato exato EF + ano + componente + número (ex.: EF09MA06, EF08MA07, EF89LP33, EF09CI13, EF09HI10, EF07GE04). Escolha as que o estudante precisa dominar para acompanhar esta aula. Se realmente não houver correlação, devolva "". IMPORTANTE: na "metodologia", inclua no 1º momento uma breve RETOMADA/DIAGNÓSTICO dessas habilidades do Fundamental (5 a 10 min), e na "avaliacao" indique como será observado se o estudante tem esse pré-requisito.')
+INSTRUCAO_EF_OFF = 'devolva sempre "" (string vazia) neste campo.'
+
+
+def _quer_ef(dados: dict) -> bool:
+    v = dados.get("incluir_ef", True)
+    if isinstance(v, str):
+        return v.strip().lower() not in ("0", "false", "nao", "não", "off", "")
+    return bool(v)
+
+
+_RE_EF = re.compile(r"EF(0[1-9]|[1-9][0-9]?|67|89)(LP|MA|CI|GE|HI|AR|EF|LI|ER)\d{2}")
+
+
+def _filtrar_ef(texto: str) -> str:
+    """Mantém só as linhas que trazem um código EF válido no formato da BNCC (evita códigos inventados)."""
+    linhas = []
+    for l in str(texto or "").split("\n"):
+        l = l.strip()
+        if not l:
+            continue
+        if _RE_EF.search(l.replace(" ", "")):
+            linhas.append(l if l.startswith(("(", "•")) else "• " + l)
+    return "\n".join(linhas[:3])
+
+
 def montar_prompt(dados: dict, contexto: str = "") -> str:
     return USER_PROMPT.format(
         contexto=contexto or "BNCC do Ensino Médio e Currículo Referência de Minas Gerais.",
+        instrucao_ef=INSTRUCAO_EF_ON if _quer_ef(dados) else INSTRUCAO_EF_OFF,
         disciplina=dados.get("disciplina", "").strip(),
         conteudo=dados.get("conteudo", "").strip(),
         serie=dados.get("serie", "").strip(),
@@ -302,6 +331,10 @@ def _demo(dados: dict) -> dict:
             "ATENÇÃO: modo demonstração — configure uma chave de IA em \"Configurações\" para que a "
             "habilidade oficial da BNCC seja identificada automaticamente."
         ),
+        "habilidade_ef": (
+            "(EF09XX00) Habilidade do Ensino Fundamental pré-requisito deste conteúdo — identificada "
+            "automaticamente quando a IA estiver configurada."
+        ) if _quer_ef(dados) else "",
         "objetivo": (
             f"• Compreender os conceitos fundamentais de {c}.\n"
             f"• Analisar situações-problema envolvendo {c} no contexto do {s}.\n"
@@ -350,6 +383,7 @@ def gerar_plano(dados: dict, overrides: dict | None = None, contexto: str = "",
     obj = _extrair_json(bruto)
     resultado = {k: _limpar(obj.get(k, "")) for k in CAMPOS}
     resultado["tema"] = _limpar(obj.get("tema") or dados.get("conteudo", ""))
+    resultado["habilidade_ef"] = _filtrar_ef(resultado.get("habilidade_ef", "")) if _quer_ef(dados) else ""
     # garante que as referências fornecidas constem nas fontes
     fontes = resultado.get("fontes", "")
     for c in (citacoes or []):

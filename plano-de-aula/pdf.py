@@ -45,6 +45,25 @@ def _bloco(label: str, texto: str, min_altura_mm: float = 0):
     return flow
 
 
+st_sublabel = ParagraphStyle("sublabel", fontName=FONT_B, fontSize=9.5, leading=12, textColor=colors.HexColor("#444444"))
+st_texto_ef = ParagraphStyle("texto_ef", parent=st_texto_ind, fontSize=10, leading=12.5)
+
+
+def _bloco_habilidade(plano: dict):
+    """Quadro HABILIDADE: habilidades do EM e, abaixo, as correlatas do Ensino Fundamental (pré-requisitos)."""
+    flow = _bloco("HABILIDADE DO PLANO DE CURSO:", plano.get("habilidade", ""), 0)
+    ef = (plano.get("habilidade_ef") or "").strip()
+    if ef:
+        flow.append(Spacer(1, 3))
+        flow.append(Paragraph("Habilidades correlatas do Ensino Fundamental (pré-requisitos):", st_sublabel))
+        for l in ef.split("\n"):
+            if l.strip():
+                l = l.strip()
+                flow.append(Paragraph(_esc(l if l.startswith("•") else "• " + l), st_texto_ef))
+    flow.append(Spacer(1, 2 * mm))
+    return flow
+
+
 def _inline(label: str, valor: str):
     return Paragraph(f"<b>{_esc(label)}</b> {_esc(valor)}", st_texto)
 
@@ -95,7 +114,7 @@ def gerar_pdf(dados: dict, plano: dict, visto: dict | None = None) -> bytes:
     # Corpo principal
     corpo = Table([
         [_bloco("TEMA:", "")],
-        [_bloco("HABILIDADE DO PLANO DE CURSO:", plano.get("habilidade", ""), 2)],
+        [_bloco_habilidade(plano)],
         [_bloco("OBJETIVO DA APRENDIZAGEM:", plano.get("objetivo", ""), 2)],
         [_bloco("METODOLOGIA (DESENVOLVIMENTO DA AULA):", plano.get("metodologia", ""), 2)],
     ], colWidths=[largura], repeatRows=0, splitInRow=1)  # splitInRow: bloco longo continua na página seguinte
