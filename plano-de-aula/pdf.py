@@ -142,7 +142,7 @@ def gerar_pdf(dados: dict, plano: dict, visto: dict | None = None) -> bytes:
         fon.setStyle(grade)
         story += [fon, Spacer(1, 4 * mm)]
 
-    # Bloco de assinaturas: Professor(a) | Supervisão | Direção
+    # Bloco de assinaturas: Professor(a) | Supervisão Pedagógica
     st_ass = ParagraphStyle("ass", fontName=FONT, fontSize=9, leading=11, alignment=TA_CENTER)
     st_ass_b = ParagraphStyle("assb", fontName=FONT_B, fontSize=9, leading=11, alignment=TA_CENTER)
 
@@ -165,7 +165,7 @@ def gerar_pdf(dados: dict, plano: dict, visto: dict | None = None) -> bytes:
                 Paragraph(_esc(carimbo.get("por") or nome), st_carimbo),
                 Paragraph(_esc(f"em {em_txt}"), st_carimbo_s),
                 Paragraph(_esc(f"Cód. {carimbo['codigo']}") if carimbo.get("codigo") else "&nbsp;", st_carimbo_s),
-            ]]], colWidths=[largura / 3 - 12])
+            ]]], colWidths=[largura / 2 - 40])
             selo.setStyle(TableStyle([
                 ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#1b5e20")),
                 ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
@@ -188,8 +188,7 @@ def gerar_pdf(dados: dict, plano: dict, visto: dict | None = None) -> bytes:
     ass = Table([[
         col_ass("Professor(a)", dados.get("professor", "")),
         col_ass("Supervisão Pedagógica", dados.get("supervisao", ""), visto),
-        col_ass("Direção", dados.get("direcao", "")),
-    ]], colWidths=[largura / 3] * 3)
+    ]], colWidths=[largura / 2] * 2)
     ass.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
         ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4),

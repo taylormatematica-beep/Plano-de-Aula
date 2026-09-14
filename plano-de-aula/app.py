@@ -536,18 +536,9 @@ def api_historico_excluir(id_):
     return jsonify({"ok": True})
 
 
-@app.route("/api/historico/<int:id_>/visto", methods=["POST"])
-def api_historico_visto(id_):
-    """Visto eletrônico da supervisão: grava nome, e-mail, data/hora e código; avisa o professor por e-mail."""
-    if not _e_supervisao():
-        return jsonify({"erro": "sem permissão"}), 403
-    item = db.obter(id_)
-    if not item:
-        return jsonify({"erro": "não encontrado"}), 404
-    body = request.get_json(silent=True) or {}
-    if body.get("desfazer"):
-        db.marcar_visto(id_, "", desfazer=True)
-        return jsonify({"ok": True})
+def _dar_visto(item: dict) -> dict:
+    """Aplica o visto eletrônico em um plano: grava, atualiza Drive e avisa o professor. Devolve {ok, codigo, aviso}."""
+    id_ = item["id"]
     u = usuario_atual() or {}
     por = (u.get("nome") or "").strip() or SUPERVISAO_NOME or "Supervisão Pedagógica"
     quando = fuso.agora_txt()
@@ -555,17 +546,15 @@ def api_historico_visto(id_):
     with db.conexao() as con:
         con.execute(db._q("UPDATE planos SET visto_em=?, visto_por=?, visto_email=?, visto_codigo=? WHERE id=?"),
                     (quando, por, u.get("email") or None, codigo, id_))
-    # supervisão em branco no plano? preenche com quem assinou
     if not (item["dados"].get("supervisao") or "").strip():
         item["dados"]["supervisao"] = por
         db.atualizar(id_, item["dados"], item["plano"])
     aviso = ""
-    # Drive: atualiza o PDF já enviado (ou envia, se o automático estiver ligado) com o carimbo do visto
     try:
         if drive.conectado() and (item.get("drive_file_id") or drive.status().get("auto")):
             _enviar_drive(id_, item["dados"], item["plano"])
     except Exception as e:  # noqa: BLE001
-        aviso = f"Visto registrado, mas não foi possível atualizar o PDF no Drive: {e}. "
+        aviso = f"não foi possível atualizar o PDF no Drive ({e}). "
     dest = (item.get("professor_email") or item["dados"].get("professor_email") or "").strip()
     if dest and email_util.configurado():
         try:
@@ -585,10 +574,77 @@ def api_historico_visto(id_):
                                                link, "Abrir plano assinado")
             email_util.enviar(dest, f"Plano de aula visado – {d.get('disciplina','')} – {d.get('data','')}", txt, html)
         except Exception as e:  # noqa: BLE001
-            aviso += f"Visto registrado, mas o e-mail ao professor falhou: {e}"
+            aviso += f"o e-mail ao professor falhou ({e})."
     elif not dest:
-        aviso += "Visto registrado. O professor não tem e-mail cadastrado neste plano, então não foi avisado."
-    return jsonify({"ok": True, "visto_em": quando, "visto_por": por, "codigo": codigo, "aviso": aviso})
+        aviso += "professor sem e-mail cadastrado neste plano, não foi avisado."
+    return {"ok": True, "visto_em": quando, "visto_por": por, "codigo": codigo, "aviso": aviso}
+
+
+@app.route("/api/historico/<int:id_>/visto", methods=["POST"])
+def api_historico_visto(id_):
+    """Visto eletrônico da supervisão em um plano."""
+    if not _e_supervisao():
+        return jsonify({"erro": "sem permissão"}), 403
+    item = db.obter(id_)
+    if not item:
+        return jsonify({"erro": "não encontrado"}), 404
+    body = request.get_json(silent=True) or {}
+    if body.get("desfazer"):
+        db.marcar_visto(id_, "", desfazer=True)
+        return jsonify({"ok": True})
+    r = _dar_visto(item)
+    if r["aviso"]:
+        r["aviso"] = "Visto registrado, mas " + r["aviso"]
+    return jsonify(r)
+
+
+@app.route("/api/historico/visto-em-bloco", methods=["POST"])
+def api_historico_visto_bloco():
+    """Assina vários planos de uma vez. body: {ids: [..]}"""
+    if not _e_supervisao():
+        return jsonify({"erro": "sem permissão"}), 403
+    body = request.get_json(silent=True) or {}
+    ids = [int(x) for x in body.get("ids", []) if str(x).isdigit()][:200]
+    feitos, pulados, avisos = 0, 0, []
+    for id_ in ids:
+        item = db.obter(id_)
+        if not item or item.get("visto_em"):
+            pulados += 1
+            continue
+        try:
+            r = _dar_visto(item)
+            feitos += 1
+            if r["aviso"]:
+                avisos.append(f"#{id_} {item['professor']}: {r['aviso']}")
+        except Exception as e:  # noqa: BLE001
+            avisos.append(f"#{id_}: falhou ({e})")
+    return jsonify({"ok": True, "feitos": feitos, "pulados": pulados, "avisos": avisos})
+
+
+@app.route("/api/historico/drive-em-bloco", methods=["POST"])
+def api_historico_drive_bloco():
+    """Envia ao Drive todos os planos ainda não enviados (ou os ids informados)."""
+    if not _e_supervisao():
+        return jsonify({"erro": "sem permissão"}), 403
+    if not drive.conectado():
+        return jsonify({"erro": "Google Drive não conectado."}), 400
+    body = request.get_json(silent=True) or {}
+    ids = [int(x) for x in body.get("ids", []) if str(x).isdigit()]
+    if not ids:
+        ids = [i["id"] for i in db.listar(limite=2000) if not i.get("drive_link")]
+    ids = ids[:150]   # limite por chamada (o navegador repete se sobrar)
+    feitos, erros = 0, []
+    for id_ in ids:
+        item = db.obter(id_)
+        if not item:
+            continue
+        try:
+            _enviar_drive(id_, item["dados"], item["plano"])
+            feitos += 1
+        except Exception as e:  # noqa: BLE001
+            erros.append(f"#{id_} {item['professor']}: {e}")
+    restantes = len([i for i in db.listar(limite=2000) if not i.get("drive_link")])
+    return jsonify({"ok": True, "feitos": feitos, "erros": erros, "restantes": restantes})
 
 
 # ----------------------------------------------------------------------------
