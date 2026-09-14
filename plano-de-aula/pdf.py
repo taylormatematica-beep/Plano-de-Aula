@@ -96,19 +96,19 @@ def gerar_pdf(dados: dict, plano: dict) -> bytes:
         [_bloco("HABILIDADE DO PLANO DE CURSO:", plano.get("habilidade", ""), 2)],
         [_bloco("OBJETIVO DA APRENDIZAGEM:", plano.get("objetivo", ""), 2)],
         [_bloco("METODOLOGIA (DESENVOLVIMENTO DA AULA):", plano.get("metodologia", ""), 2)],
-    ], colWidths=[largura], repeatRows=0)
+    ], colWidths=[largura], repeatRows=0, splitInRow=1)  # splitInRow: bloco longo continua na página seguinte
     # TEMA na mesma linha do rótulo
     corpo._cellvalues[0][0] = [_inline("TEMA:", plano.get("tema", ""))]
     corpo.setStyle(grade)
     story += [corpo, Spacer(1, 5 * mm)]
 
-    rec = Table([[_bloco("RECURSOS DIDÁTICOS:", plano.get("recursos", ""), 2)]], colWidths=[largura])
+    rec = Table([[_bloco("RECURSOS DIDÁTICOS:", plano.get("recursos", ""), 2)]], colWidths=[largura], splitInRow=1)
     rec.setStyle(grade)
-    story += [KeepTogether(rec), Spacer(1, 5 * mm)]
+    story += [rec, Spacer(1, 5 * mm)]
 
-    ava = Table([[_bloco("AVALIAÇÃO:", plano.get("avaliacao", ""), 2)]], colWidths=[largura])
+    ava = Table([[_bloco("AVALIAÇÃO:", plano.get("avaliacao", ""), 2)]], colWidths=[largura], splitInRow=1)
     ava.setStyle(grade)
-    story += [KeepTogether(ava), Spacer(1, 5 * mm)]
+    story += [ava, Spacer(1, 5 * mm)]
 
     if (plano.get("fontes") or "").strip():
         st_fonte = ParagraphStyle("fonte", parent=st_texto_ind, fontSize=9.5, leading=12)
@@ -117,9 +117,9 @@ def gerar_pdf(dados: dict, plano: dict) -> bytes:
             if l.strip():
                 flow.append(Paragraph(_esc(l.strip() if l.strip().startswith("•") else "• " + l.strip()), st_fonte))
         flow.append(Spacer(1, 1 * mm))
-        fon = Table([[flow]], colWidths=[largura])
+        fon = Table([[flow]], colWidths=[largura], splitInRow=1)
         fon.setStyle(grade)
-        story += [KeepTogether(fon), Spacer(1, 4 * mm)]
+        story += [fon, Spacer(1, 4 * mm)]
 
     # Bloco de assinaturas: Professor(a) | Supervisão | Direção
     st_ass = ParagraphStyle("ass", fontName=FONT, fontSize=9, leading=11, alignment=TA_CENTER)
