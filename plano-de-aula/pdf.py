@@ -1,6 +1,7 @@
 """
 Geração do PDF no layout idêntico ao modelo da escola (Presidente Bernardes).
 """
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
@@ -48,7 +49,8 @@ def _inline(label: str, valor: str):
     return Paragraph(f"<b>{_esc(label)}</b> {_esc(valor)}", st_texto)
 
 
-def gerar_pdf(dados: dict, plano: dict) -> bytes:
+def gerar_pdf(dados: dict, plano: dict, visto: dict | None = None) -> bytes:
+    """visto = {"em": "2026-09-15 09:12:00", "por": "Nome", "codigo": "AB12-CD34"} -> carimbo na assinatura da supervisão."""
     buf = BytesIO()
     doc = SimpleDocTemplate(
         buf, pagesize=A4,
@@ -125,7 +127,37 @@ def gerar_pdf(dados: dict, plano: dict) -> bytes:
     st_ass = ParagraphStyle("ass", fontName=FONT, fontSize=9, leading=11, alignment=TA_CENTER)
     st_ass_b = ParagraphStyle("assb", fontName=FONT_B, fontSize=9, leading=11, alignment=TA_CENTER)
 
-    def col_ass(titulo: str, nome: str):
+    st_carimbo = ParagraphStyle("carimbo", fontName=FONT_B, fontSize=8, leading=9.5, alignment=TA_CENTER,
+                                textColor=colors.HexColor("#1b5e20"))
+    st_carimbo_s = ParagraphStyle("carimbos", fontName=FONT, fontSize=7, leading=8.5, alignment=TA_CENTER,
+                                  textColor=colors.HexColor("#1b5e20"))
+
+    def col_ass(titulo: str, nome: str, carimbo: dict | None = None):
+        if carimbo and carimbo.get("em"):
+            em = str(carimbo["em"])
+            try:
+                dt = datetime.strptime(em[:19], "%Y-%m-%d %H:%M:%S")
+                em_txt = dt.strftime("%d/%m/%Y às %H:%M")
+                data_txt = dt.strftime("%d/%m/%Y")
+            except ValueError:
+                em_txt, data_txt = em, em[:10]
+            selo = Table([[[
+                Paragraph("VISTO ELETRÔNICO", st_carimbo),
+                Paragraph(_esc(carimbo.get("por") or nome), st_carimbo),
+                Paragraph(_esc(f"em {em_txt}"), st_carimbo_s),
+                Paragraph(_esc(f"Cód. {carimbo['codigo']}") if carimbo.get("codigo") else "&nbsp;", st_carimbo_s),
+            ]]], colWidths=[largura / 3 - 12])
+            selo.setStyle(TableStyle([
+                ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#1b5e20")),
+                ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ]))
+            return [
+                selo, Spacer(1, 1 * mm),
+                HRFlowable(width="88%", thickness=0.7, color=colors.black, spaceAfter=2),
+                Paragraph(_esc(titulo), st_ass_b),
+                Paragraph(_esc(carimbo.get("por") or nome or "&nbsp;"), st_ass),
+                Paragraph(_esc(f"Data: {data_txt}"), st_ass),
+            ]
         return [
             Spacer(1, 12 * mm),                       # espaço para assinar
             HRFlowable(width="88%", thickness=0.7, color=colors.black, spaceAfter=2),
@@ -136,7 +168,7 @@ def gerar_pdf(dados: dict, plano: dict) -> bytes:
 
     ass = Table([[
         col_ass("Professor(a)", dados.get("professor", "")),
-        col_ass("Supervisão Pedagógica", dados.get("supervisao", "")),
+        col_ass("Supervisão Pedagógica", dados.get("supervisao", ""), visto),
         col_ass("Direção", dados.get("direcao", "")),
     ]], colWidths=[largura / 3] * 3)
     ass.setStyle(TableStyle([

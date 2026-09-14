@@ -174,3 +174,22 @@ def template_link(titulo: str, nome: str, texto_intro: str, link: str, validade:
 <tr><td style="padding:14px 28px 22px;font-size:11px;color:#999;border-top:1px solid #eee;margin-top:10px">Assistente de Plano de Aula · Escola Estadual Presidente Bernardes</td></tr>
 </table></td></tr></table></body></html>"""
     return texto, html
+
+
+def template_simples(titulo: str, nome: str, corpo_html: str, link: str, rotulo_botao: str) -> str:
+    """HTML de aviso genérico (ex.: plano visado) com um botão."""
+    saudacao = f"Olá, {nome}!" if nome else "Olá!"
+    return f"""<!doctype html><html><body style="margin:0;background:#f4f4f5;font-family:Segoe UI,Arial,sans-serif;color:#222">
+<table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:28px 12px">
+<table width="520" cellpadding="0" cellspacing="0" style="background:#fff;border:1px solid #d9d9de;border-radius:12px;max-width:100%">
+<tr><td style="padding:22px 28px 0;border-top:4px solid #e10600;border-radius:12px 12px 0 0">
+  <div style="font-weight:700;font-size:15px;letter-spacing:.02em">PRESIDENTE BERNARDES <span style="font-weight:400;color:#666;font-size:12px">· ENSINO MÉDIO INTEGRAL</span></div>
+</td></tr>
+<tr><td style="padding:18px 28px 6px"><h2 style="margin:0 0 10px;font-size:20px">{titulo}</h2>
+  <p style="margin:0 0 10px;font-size:15px">{saudacao}</p>
+  <p style="margin:0 0 18px;font-size:15px;line-height:1.5">{corpo_html}</p>
+  <p style="text-align:center;margin:0 0 18px"><a href="{link}" style="display:inline-block;background:#111;color:#fff;text-decoration:none;padding:12px 26px;border-radius:8px;font-weight:600;font-size:15px">{rotulo_botao}</a></p>
+  <p style="font-size:12px;color:#666;line-height:1.5;margin:0">Após o visto, o plano fica travado para edição. Se precisar alterar, peça à supervisão para desfazer o visto.</p>
+</td></tr>
+<tr><td style="padding:14px 28px 22px;font-size:11px;color:#999;border-top:1px solid #eee">Assistente de Plano de Aula · Escola Estadual Presidente Bernardes</td></tr>
+</table></td></tr></table></body></html>"""

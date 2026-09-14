@@ -107,7 +107,7 @@ def init():
         )""")
         con.execute("CREATE INDEX IF NOT EXISTS idx_trechos_doc ON trechos(documento_id)")
     # colunas adicionadas depois da 1ª versão (migração leve)
-    for col in ("drive_file_id", "drive_link", "drive_em", "professor_email"):
+    for col in ("drive_file_id", "drive_link", "drive_em", "professor_email", "visto_codigo", "visto_email"):
         try:
             with conexao() as con:
                 if USA_PG:
@@ -195,7 +195,7 @@ def listar(professor: str | None = None, disciplina: str = "", serie: str = "", 
         params += [f"%{busca.lower()}%", f"%{busca.lower()}%"]
     where = ("WHERE " + " AND ".join(cond)) if cond else ""
     sql = _q(f"""SELECT id, criado_em, professor, professor_email, disciplina, serie, tema, data_ref, visto_em, visto_por,
-                        drive_link, drive_em
+                        visto_codigo, drive_link, drive_em
                  FROM planos {where} ORDER BY id DESC LIMIT {int(limite)}""")
     with conexao() as con:
         return _linhas(con.execute(sql, params))
@@ -206,13 +206,22 @@ def excluir(id_: int):
         con.execute(_q("DELETE FROM planos WHERE id=?"), (id_,))
 
 
-def marcar_visto(id_: int, por: str, desfazer: bool = False):
+def marcar_visto(id_: int, por: str, desfazer: bool = False, email: str = "", codigo: str = "") -> str:
+    """Registra o visto eletrônico da supervisão. Devolve a data/hora gravada ('' ao desfazer)."""
     with conexao() as con:
         if desfazer:
-            con.execute(_q("UPDATE planos SET visto_em=NULL, visto_por=NULL WHERE id=?"), (id_,))
-        else:
-            con.execute(_q("UPDATE planos SET visto_em=?, visto_por=? WHERE id=?"),
-                        (fuso.agora_txt(), por, id_))
+            con.execute(_q("UPDATE planos SET visto_em=NULL, visto_por=NULL, visto_email=NULL, visto_codigo=NULL WHERE id=?"), (id_,))
+            return ""
+        agora = fuso.agora_txt()
+        con.execute(_q("UPDATE planos SET visto_em=?, visto_por=?, visto_email=?, visto_codigo=? WHERE id=?"),
+                    (agora, por, email or None, codigo or None, id_))
+        return agora
+
+
+def visto_info(id_: int) -> dict:
+    with conexao() as con:
+        rows = _linhas(con.execute(_q("SELECT visto_em, visto_por, visto_email, visto_codigo FROM planos WHERE id=?"), (id_,)))
+    return rows[0] if rows else {}
 
 
 def professores() -> list[str]:

@@ -2,10 +2,11 @@
 Assistente de Plano de Aula — Escola Presidente Bernardes
 Execute:  python app.py   e acesse http://localhost:5000
 """
+import hashlib
 import json
 import re
 import unicodedata
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, send_file
@@ -407,12 +408,18 @@ def api_pdf():
     body = request.get_json(force=True) or {}
     dados, plano = body.get("dados", {}), body.get("plano", {})
     plano = {k: v for k, v in plano.items() if not k.startswith("_")}
+    visto = None
     if body.get("id"):
-        try:
-            db.atualizar(int(body["id"]), dados, plano)   # guarda as edições feitas na tela
-        except Exception:
-            pass
-    pdf = gerar_pdf(dados, plano)
+        item = db.obter(int(body["id"]))
+        if item and item.get("visto_em"):
+            # plano já visado pela supervisão: vale a versão gravada (não aceita edições)
+            dados, plano, visto = item["dados"], item["plano"], _visto_de(item)
+        else:
+            try:
+                db.atualizar(int(body["id"]), dados, plano)   # guarda as edições feitas na tela
+            except Exception:
+                pass
+    pdf = gerar_pdf(dados, plano, visto)
     nome = f"plano-de-aula-{_slug(dados.get('disciplina','')) or 'x'}-{_slug(dados.get('serie',''))}-{_slug(dados.get('data',''))}-{_slug(dados.get('professor',''))}.pdf"
     resp = send_file(BytesIO(pdf), mimetype="application/pdf", as_attachment=True, download_name=nome)
     # envio automático ao Drive (silencioso: nunca impede o download)
@@ -437,6 +444,18 @@ def _enviar_drive(id_: int, dados: dict, plano: dict, pdf: bytes | None = None) 
 # ----------------------------------------------------------------------------
 # Histórico
 # ----------------------------------------------------------------------------
+def _visto_de(item: dict) -> dict | None:
+    if not item or not item.get("visto_em"):
+        return None
+    return {"em": item["visto_em"], "por": item.get("visto_por") or "", "codigo": item.get("visto_codigo") or ""}
+
+
+def _codigo_visto(id_: int, quando: str) -> str:
+    """Código curto de verificação (impresso no carimbo), derivado do plano + data/hora + chave secreta."""
+    h = hashlib.sha256(f"{id_}|{quando}|{app.secret_key}".encode()).hexdigest().upper()
+    return f"{h[:4]}-{h[4:8]}"
+
+
 def _pode_ver(item: dict) -> bool:
     if _e_supervisao():
         return True
@@ -491,7 +510,7 @@ def api_historico_pdf(id_):
         return "não encontrado", 404
     if not _pode_ver(item):
         return "sem permissão", 403
-    pdf = gerar_pdf(item["dados"], item["plano"])
+    pdf = gerar_pdf(item["dados"], item["plano"], _visto_de(item))
     d = item["dados"]
     nome = f"plano-{_slug(d.get('disciplina',''))}-{_slug(d.get('serie',''))}-{_slug(d.get('data',''))}-{_slug(d.get('professor',''))}.pdf"
     return send_file(BytesIO(pdf), mimetype="application/pdf", as_attachment=True, download_name=nome)
@@ -510,11 +529,51 @@ def api_historico_excluir(id_):
 
 @app.route("/api/historico/<int:id_>/visto", methods=["POST"])
 def api_historico_visto(id_):
+    """Visto eletrônico da supervisão: grava nome, e-mail, data/hora e código; avisa o professor por e-mail."""
     if not _e_supervisao():
         return jsonify({"erro": "sem permissão"}), 403
+    item = db.obter(id_)
+    if not item:
+        return jsonify({"erro": "não encontrado"}), 404
     body = request.get_json(silent=True) or {}
-    db.marcar_visto(id_, SUPERVISAO_NOME or "Supervisão", desfazer=bool(body.get("desfazer")))
-    return jsonify({"ok": True})
+    if body.get("desfazer"):
+        db.marcar_visto(id_, "", desfazer=True)
+        return jsonify({"ok": True})
+    u = usuario_atual() or {}
+    por = (u.get("nome") or "").strip() or SUPERVISAO_NOME or "Supervisão Pedagógica"
+    quando = fuso.agora_txt()
+    codigo = _codigo_visto(id_, quando)
+    with db.conexao() as con:
+        con.execute(db._q("UPDATE planos SET visto_em=?, visto_por=?, visto_email=?, visto_codigo=? WHERE id=?"),
+                    (quando, por, u.get("email") or None, codigo, id_))
+    # supervisão em branco no plano? preenche com quem assinou
+    if not (item["dados"].get("supervisao") or "").strip():
+        item["dados"]["supervisao"] = por
+        db.atualizar(id_, item["dados"], item["plano"])
+    aviso = ""
+    dest = (item.get("professor_email") or item["dados"].get("professor_email") or "").strip()
+    if dest and email_util.configurado():
+        try:
+            d = item["dados"]
+            link = _base_url() + f"/?id={id_}"
+            dt = datetime.strptime(quando[:19], "%Y-%m-%d %H:%M:%S").strftime("%d/%m/%Y às %H:%M")
+            txt = (f"Olá, {d.get('professor','')}!\n\nSeu plano de aula de {d.get('disciplina','')} ({d.get('serie','')}), "
+                   f"semana {d.get('data','')}, tema \"{item['plano'].get('tema','')}\", recebeu o visto eletrônico da supervisão.\n\n"
+                   f"Visto por: {por}\nEm: {dt}\nCódigo: {codigo}\n\n"
+                   f"Baixe a versão assinada em: {link}\n\n"
+                   "Observação: após o visto o plano fica travado para edição. Se precisar alterar, peça à supervisão para desfazer o visto.\n\n"
+                   "Escola Estadual Presidente Bernardes — Assistente de Plano de Aula")
+            html = email_util.template_simples("Plano de aula visado ✔", d.get("professor", ""),
+                                               f"Seu plano de <b>{d.get('disciplina','')}</b> ({d.get('serie','')}), semana {d.get('data','')}, "
+                                               f"tema <i>{item['plano'].get('tema','')}</i>, recebeu o <b>visto eletrônico da supervisão</b>.<br><br>"
+                                               f"Visto por: <b>{por}</b><br>Em: {dt}<br>Código: {codigo}",
+                                               link, "Abrir plano assinado")
+            email_util.enviar(dest, f"Plano de aula visado – {d.get('disciplina','')} – {d.get('data','')}", txt, html)
+        except Exception as e:  # noqa: BLE001
+            aviso = f"Visto registrado, mas o e-mail ao professor falhou: {e}"
+    elif not dest:
+        aviso = "Visto registrado. O professor não tem e-mail cadastrado neste plano, então não foi avisado."
+    return jsonify({"ok": True, "visto_em": quando, "visto_por": por, "codigo": codigo, "aviso": aviso})
 
 
 # ----------------------------------------------------------------------------
