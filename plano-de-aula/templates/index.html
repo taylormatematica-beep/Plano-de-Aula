@@ -180,6 +180,7 @@
   </section>
 </main>
 
+<div class="modal-bg" id="modalDup" onclick="if(event.target===this)fecharDup()"></div>
 <!-- MODAL CONFIG -->
 <div class="modal-bg" id="modal">
   <div class="modal">
@@ -257,13 +258,21 @@ function coletar(){
   };
 }
 
-async function gerar(){
+async function gerar(forcar){
   const d = coletar();
   $('msg').innerHTML = '';
   if (!d.professor || !d.disciplina || !d.conteudo || !d.data || !d.serie){
     $('msg').innerHTML = '<div class="erro">Preencha seu nome, matéria, conteúdo, data e série.</div>'; return;
   }
   localStorage.setItem('professor', d.professor);
+  // Já existe plano com o mesmo contexto? (só na 1ª geração, não no "Gerar novamente" de um plano aberto)
+  if (!forcar && !(estado && estado.id)){
+    try{
+      const r = await fetch('/api/verificar-duplicado',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});
+      const iguais = r.ok ? await r.json() : [];
+      if (iguais.length){ mostrarDuplicados(iguais); return; }
+    }catch(e){}
+  }
   const b = $('btnGerar'); b.disabled = true;
   b.innerHTML = '<span class="spinner"></span> Gerando com IA… (10–30 s)';
   try{
@@ -277,6 +286,25 @@ async function gerar(){
   finally{ b.disabled=false; b.innerHTML='✨ Gerar plano de aula'; }
 }
 
+function mostrarDuplicados(lista){
+  const linhas = lista.map(i=>`<div style="border:1px solid var(--borda);border-radius:8px;padding:10px 12px;margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <div style="flex:1;min-width:200px"><b>${esc(i.tema||i.conteudo||'(sem tema)')}</b><br>
+        <small style="color:var(--muted)">Semana ${esc(i.data_ref||'')} · gerado em ${esc(fmtDt(i.criado_em))} · <i>${esc(i.motivo)}</i>${i.visto_em?' · <span style="color:#186a30">✔ visado pela supervisão</span>':''}${i.drive_link?' · ▲ no Drive':''}</small></div>
+      <a class="btn sec" href="/?id=${i.id}" style="text-decoration:none">Abrir e editar</a>
+    </div>`).join('');
+  const temVisado = lista.some(i=>i.visto_em);
+  $('modalDup').innerHTML = `<div class="modal">
+    <h3 style="margin:0 0 6px">Já existe um plano parecido</h3>
+    <p style="margin:0 0 6px;font-size:14px;color:var(--muted)">Encontrei ${lista.length===1?'este plano seu':'estes planos seus'} com a mesma matéria/turma e a mesma semana ou conteúdo parecido:</p>
+    ${linhas}
+    ${temVisado?'<p class="aviso" style="margin-top:10px">⚠ Um dos planos já tem o visto da supervisão. Planos visados não podem ser editados; se precisar alterá-lo, peça à supervisão para desfazer o visto. Você ainda pode inserir um plano novo.</p>':''}
+    <div class="acoes" style="justify-content:flex-end;margin-top:14px">
+      <button class="btn sec" onclick="fecharDup()">Cancelar</button>
+      <button class="btn primary" style="width:auto;margin:0" onclick="fecharDup();gerar(true)">➕ Inserir um plano novo</button>
+    </div></div>`;
+  $('modalDup').classList.add('open');
+}
+function fecharDup(){ $('modalDup').classList.remove('open'); }
 function bloco(label, campo, minh){
   return `<tr><td><b>${label}</b><div class="ed" contenteditable="true" data-campo="${campo}" style="min-height:${minh||40}px">${esc(estado.plano[campo])}</div></td></tr>`;
 }
