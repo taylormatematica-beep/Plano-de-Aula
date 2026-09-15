@@ -472,14 +472,20 @@ def _codigo_visto(id_: int, quando: str) -> str:
 
 
 def _medir_banco() -> str:
+    """Mede: (1) pegar conexão + 1ª consulta; (2) consultas seguintes na MESMA conexão (= latência pura da rede)."""
     import time as _t
-    t0 = _t.time()
     try:
+        t0 = _t.time()
         with db.conexao() as con:
             con.execute("SELECT 1")
-        ms = (_t.time() - t0) * 1000
-        pool = " · pool de conexões ativo" if getattr(db, "_POOL", None) else (" · SEM pool" if db.USA_PG else "")
-        return f"{ms:.0f} ms" + (" ⚠️ lento (banco distante ou sobrecarregado)" if ms > 400 else " ✅") + pool
+            ms1 = (_t.time() - t0) * 1000
+            t1 = _t.time()
+            for _ in range(3):
+                con.execute("SELECT 1")
+            ms2 = (_t.time() - t1) * 1000 / 3
+        pool = "pool ativo" if getattr(db, "_POOL", None) else ("SEM pool" if db.USA_PG else "SQLite")
+        alerta = " ⚠️ banco distante: considere migrar para Neon/Supabase (região São Paulo)" if ms2 > 150 else " ✅"
+        return f"obter conexão + consulta: {ms1:.0f} ms · consulta na mesma conexão: {ms2:.0f} ms{alerta} · {pool}"
     except Exception as e:  # noqa: BLE001
         return f"❌ {e}"
 
