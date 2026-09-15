@@ -172,6 +172,8 @@
       <h2>Pré-visualização</h2>
       <div class="acoes" id="acoes" style="display:none">
         <button class="btn sec" onclick="gerar()">🔄 Gerar novamente</button>
+        <button class="btn sec" id="btnEditar" style="display:none" onclick="liberarEdicao()">✏️ Editar</button>
+        <button class="btn sec" id="btnSalvar" style="display:none;background:#186a30;color:#fff;border-color:#186a30" onclick="salvar()">💾 Salvar</button>
         <button class="btn baixar" onclick="baixarPdf()">⬇ Baixar PDF</button>
       </div>
     </div>
@@ -230,11 +232,12 @@ if(!$('professor').value) $('professor').value = localStorage.getItem('professor
   $('supervisao').value = d.supervisao || ''; $('direcao').value = d.direcao || '';
   renderizar();
   if (estado.visto){
-    document.querySelectorAll('#preview [contenteditable]').forEach(el => { el.contentEditable = 'false'; el.classList.remove('ed'); });
-    $('dica').style.display = 'none';
-    $('msg').innerHTML = `<div class="aviso" style="background:#e8f5ec;border-color:#bfe3c9;color:#186a30">✔ Plano visado eletronicamente por <b>${esc(estado.visto.por||'Supervisão')}</b> em ${fmtDt(estado.visto.em)} (cód. ${esc(estado.visto.codigo||'')}). A edição está travada; baixe o PDF assinado. Para alterar, peça à supervisão para desfazer o visto.</div>`;
+    travarEdicao();
+    $('btnEditar').style.display='';
+    $('msg').innerHTML = `<div class="aviso" style="background:#e8f5ec;border-color:#bfe3c9;color:#186a30">✔ Plano visado eletronicamente por <b>${esc(estado.visto.por||'Supervisão')}</b> em ${fmtDt(estado.visto.em)} (cód. ${esc(estado.visto.codigo||'')}). Baixe o PDF assinado ou clique em <b>✏️ Editar</b> — ao salvar alterações, o visto é removido e a supervisão precisará vistar novamente.</div>`;
   } else {
-    $('msg').innerHTML = '<div class="aviso">Plano carregado do histórico. Edite e baixe o PDF, ou clique em "Gerar novamente" para uma nova versão.</div>';
+    $('btnSalvar').style.display='';
+    $('msg').innerHTML = '<div class="aviso">Plano carregado do histórico. Edite o que precisar e clique em <b>💾 Salvar</b> (ou baixe o PDF, que também salva).</div>';
   }
 })();
 
@@ -280,7 +283,7 @@ async function gerar(forcar){
     const j = await r.json();
     if(r.status===401){ location.href='/login?next=/'; return; }
     if(!r.ok) throw new Error(j.erro || 'Erro desconhecido');
-    estado = j; renderizar();
+    estado = j; renderizar(); $('btnSalvar').style.display=''; $('btnEditar').style.display='none';
     if (j.plano._demo) $('msg').innerHTML = '<div class="aviso">Gerado em modo demonstração. Configure a IA para textos específicos do conteúdo.</div>';
   }catch(e){ $('msg').innerHTML = '<div class="erro">'+esc(e.message)+'</div>'; }
   finally{ b.disabled=false; b.innerHTML='✨ Gerar plano de aula'; }
@@ -342,6 +345,28 @@ function renderizar(){
 }
 
 function fmtDt(t){ if(!t) return ''; const [d,h]=String(t).split(' '); const [a,m,dd]=d.split('-'); return `${dd}/${m}/${a}${h?' às '+h.slice(0,5):''}`; }
+function travarEdicao(){
+  document.querySelectorAll('#preview [contenteditable]').forEach(el => { el.contentEditable = 'false'; el.classList.remove('ed'); });
+  $('dica').style.display = 'none';
+}
+function liberarEdicao(){
+  if(!confirm('Este plano tem o visto da supervisão.\n\nAo editar e salvar, o visto será removido e o plano voltará para "Pendente" (a supervisão precisará vistar de novo). Continuar?')) return;
+  estado.visto = null; estado.editandoVisado = true;
+  renderizar();                       // redesenha sem o carimbo e com campos editáveis
+  $('btnEditar').style.display='none'; $('btnSalvar').style.display='';
+  $('msg').innerHTML = '<div class="aviso">✏️ Modo de edição. Clique nos textos para alterar e depois em <b>💾 Salvar</b>. O visto será removido ao salvar.</div>';
+}
+async function salvar(){
+  if(!estado || !estado.id) return; sincronizar();
+  const b=$('btnSalvar'); b.disabled=true; b.textContent='Salvando…';
+  try{
+    const r = await fetch(`/api/historico/${estado.id}/salvar`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dados:estado.dados, plano:estado.plano})});
+    const j = await r.json(); if(!r.ok) throw new Error(j.erro||'Erro ao salvar');
+    estado.editandoVisado = false;
+    $('msg').innerHTML = `<div class="aviso" style="background:#e8f5ec;border-color:#bfe3c9;color:#186a30">💾 Plano salvo${j.visto_removido?' — o visto anterior foi removido; o plano voltou para "Pendente" na supervisão':''}.${j.aviso?' '+esc(j.aviso):''}</div>`;
+  }catch(e){ $('msg').innerHTML='<div class="erro">'+esc(e.message)+'</div>'; }
+  finally{ b.disabled=false; b.textContent='💾 Salvar'; }
+}
 function sincronizar(){
   if (estado && estado.visto) return;   // plano visado: nada é alterado
   document.querySelectorAll('[data-campo]').forEach(el => estado.plano[el.dataset.campo] = el.innerText.trim());
