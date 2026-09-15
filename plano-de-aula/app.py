@@ -478,7 +478,8 @@ def _medir_banco() -> str:
         with db.conexao() as con:
             con.execute("SELECT 1")
         ms = (_t.time() - t0) * 1000
-        return f"{ms:.0f} ms" + (" ⚠️ lento (banco distante ou sobrecarregado)" if ms > 400 else " ✅")
+        pool = " · pool de conexões ativo" if getattr(db, "_POOL", None) else (" · SEM pool" if db.USA_PG else "")
+        return f"{ms:.0f} ms" + (" ⚠️ lento (banco distante ou sobrecarregado)" if ms > 400 else " ✅") + pool
     except Exception as e:  # noqa: BLE001
         return f"❌ {e}"
 

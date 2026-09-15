@@ -21,6 +21,18 @@ if USA_PG:
     import psycopg  # type: ignore
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = "postgresql://" + DATABASE_URL[len("postgres://"):]
+    # Pool: mantém algumas conexões abertas e as reaproveita. Abrir uma conexão nova no PostgreSQL
+    # do Render custa ~1-2 s; com o pool, a maioria das requisições nem toca nesse custo.
+    try:
+        from psycopg_pool import ConnectionPool  # type: ignore
+        _POOL = ConnectionPool(
+            DATABASE_URL, min_size=1, max_size=int(os.getenv("DB_POOL_MAX", "6")),
+            max_idle=300, max_lifetime=1800, timeout=30, open=False,   # abre na 1ª consulta (não trava a subida)
+            kwargs={"connect_timeout": 15, "keepalives": 1, "keepalives_idle": 60},
+            check=ConnectionPool.check_connection,
+        )
+    except Exception:  # pool indisponível -> conexões avulsas (funciona, só é mais lento)
+        _POOL = None
 else:
     DATA_DIR = Path(os.getenv("DATA_DIR") or (Path(__file__).parent / "dados"))
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -30,7 +42,16 @@ else:
 @contextmanager
 def conexao():
     if USA_PG:
-        con = psycopg.connect(DATABASE_URL)
+        if _POOL is not None:
+            if getattr(_POOL, "_opened", False) is False:
+                try:
+                    _POOL.open(wait=False)
+                except Exception:
+                    pass
+            with _POOL.connection() as con:   # devolve ao pool ao sair (commit/rollback automáticos)
+                yield con
+            return
+        con = psycopg.connect(DATABASE_URL, connect_timeout=15)
     else:
         con = sqlite3.connect(DB_PATH)
         con.row_factory = sqlite3.Row
