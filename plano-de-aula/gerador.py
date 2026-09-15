@@ -66,7 +66,7 @@ Sua função é redigir planos de aula semanais completos, alinhados à BNCC (Ba
 Escreva sempre em português do Brasil, em linguagem técnica-pedagógica clara e objetiva, na norma culta.
 Responda EXCLUSIVAMENTE com um objeto JSON válido, sem comentários, sem markdown e sem texto fora do JSON."""
 
-USER_PROMPT = """Elabore o plano de aula semanal com os dados abaixo.
+USER_PROMPT = """Elabore o plano de aula semanal com os dados abaixo. Seja objetivo: textos completos, porém enxutos (o plano cabe em 1 a 2 páginas A4).
 
 REFERÊNCIAS QUE DEVEM FUNDAMENTAR O PLANO:
 {contexto}
@@ -175,8 +175,9 @@ GEMINI_PREFERIDOS = [
 ]
 MODELOS_GEMINI_DESCONTINUADOS = {"gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.5-flash-8b",
                                  "gemini-1.5-flash-latest", "gemini-1.5-pro-latest", "gemini-pro"}
-TENTATIVAS_POR_MODELO = 2              # novas tentativas quando o Google responde 500/503
-ESPERA_ENTRE_TENTATIVAS = (3, 6, 10)   # segundos
+TENTATIVAS_POR_MODELO = 2              # tentativas por modelo quando o Google responde 500/503
+ESPERA_ENTRE_TENTATIVAS = (2, 4, 6)    # segundos
+MAX_MODELOS_TENTADOS = 4               # depois disso, desiste e avisa (em vez de esperar minutos)
 _cache_modelos: dict = {"chave": None, "lista": [], "quando": 0.0}
 
 GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
@@ -230,12 +231,16 @@ def _ordenar_candidatos(preferido: str, disponiveis: list[str]) -> list[str]:
     for m in sorted(disp, reverse=True):
         if m not in ordem:
             ordem.append(m)
-    return ordem[:12]
+    return ordem[:MAX_MODELOS_TENTADOS]
+
+
+TIMEOUT_GEMINI = int(os.getenv("AI_TIMEOUT", "75"))          # segundos por tentativa
+THINKING_BUDGET = int(os.getenv("AI_THINKING_BUDGET", "512"))  # quanto o modelo pode "pensar" (0 = desligado)
 
 
 def _gemini_request(model: str, api_key: str, body: dict) -> requests.Response:
     return requests.post(f"{GEMINI_BASE}/models/{model}:generateContent",
-                         headers=_headers(api_key), json=body, timeout=120)
+                         headers=_headers(api_key), json=body, timeout=TIMEOUT_GEMINI)
 
 
 def _msg_erro_google(r: requests.Response) -> str:
@@ -249,7 +254,14 @@ def _chamar_gemini(cfg: dict, prompt: str) -> str:
     body = {
         "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.7, "responseMimeType": "application/json"},
+        "generationConfig": {
+            "temperature": 0.7,
+            "responseMimeType": "application/json",
+            "maxOutputTokens": 4096,
+            # Modelos 2.5+/3.x "pensam" antes de responder; sem limite isso pode levar 30-60 s.
+            # Um orçamento pequeno mantém a qualidade do plano e corta a espera.
+            "thinkingConfig": {"thinkingBudget": THINKING_BUDGET},
+        },
     }
     try:
         disponiveis = listar_modelos_gemini(cfg["api_key"])
@@ -273,6 +285,16 @@ def _chamar_gemini(cfg: dict, prompt: str) -> str:
                 except (KeyError, IndexError):
                     erros.append(f"{m}: resposta vazia")
                     break
+            if r.status_code == 400 and "thinking" in _msg_erro_google(r).lower():
+                # modelo não suporta configuração de pensamento -> reenvia sem ela
+                body_sem = json.loads(json.dumps(body))
+                body_sem["generationConfig"].pop("thinkingConfig", None)
+                try:
+                    r = _gemini_request(m, cfg["api_key"], body_sem)
+                    if r.status_code == 200:
+                        return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+                except (requests.RequestException, KeyError, IndexError):
+                    pass
             if r.status_code == 404:                  # modelo não existe -> próximo modelo
                 erros.append(f"{m}: não encontrado (404)")
                 break
