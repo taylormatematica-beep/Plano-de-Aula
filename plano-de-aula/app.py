@@ -372,6 +372,21 @@ def index():
     )
 
 
+@app.route("/api/verificar-duplicado", methods=["POST"])
+def api_verificar_duplicado():
+    """Antes de gerar: há outro plano deste professor com o mesmo contexto?"""
+    d = request.get_json(force=True) or {}
+    u = usuario_atual()
+    prof = (u.get("nome") if u else d.get("professor", "")) or ""
+    email = (u.get("email") if u else "") or None
+    data_ref = _formatar_data(d.get("data", ""))
+    if d.get("data_fim"):
+        data_ref = f"{data_ref} a {_formatar_data(d['data_fim'])}"
+    iguais = db.semelhantes(prof, email, d.get("disciplina", ""), d.get("serie", ""), data_ref, d.get("conteudo", ""))
+    return jsonify([{k: i.get(k) for k in ("id", "criado_em", "tema", "data_ref", "conteudo", "visto_em", "drive_link", "motivo")}
+                    for i in iguais])
+
+
 @app.route("/api/gerar", methods=["POST"])
 def api_gerar():
     dados = request.get_json(force=True) or {}
@@ -484,8 +499,23 @@ def _medir_banco() -> str:
                 con.execute("SELECT 1")
             ms2 = (_t.time() - t1) * 1000 / 3
         pool = "pool ativo" if getattr(db, "_POOL", None) else ("SEM pool" if db.USA_PG else "SQLite")
-        alerta = " ⚠️ banco distante: considere migrar para Neon/Supabase (região São Paulo)" if ms2 > 150 else " ✅"
-        return f"obter conexão + consulta: {ms1:.0f} ms · consulta na mesma conexão: {ms2:.0f} ms{alerta} · {pool}"
+        host = ""
+        if db.USA_PG:
+            import re as _re
+            m = _re.search(r"@([^/:?]+)", db.DATABASE_URL)
+            host = m.group(1) if m else ""
+        onde = ""
+        if "neon.tech" in host:
+            onde = " · Neon" + (" São Paulo" if "sa-east-1" in host else "") + (" (via pooler)" if "-pooler" in host else "")
+        elif "render.com" in host:
+            onde = " · Render"
+        if ms2 > 150:
+            nota = (" ℹ️ latência de rede entre o servidor (Render, EUA) e o banco (São Paulo); esperado, "
+                    "o pool de conexões compensa a maior parte") if "sa-east-1" in host else \
+                   " ⚠️ banco distante do servidor"
+        else:
+            nota = " ✅"
+        return f"obter conexão + consulta: {ms1:.0f} ms · consulta na mesma conexão: {ms2:.0f} ms{nota} · {pool}{onde}"
     except Exception as e:  # noqa: BLE001
         return f"❌ {e}"
 

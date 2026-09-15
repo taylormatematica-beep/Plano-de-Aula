@@ -238,10 +238,16 @@ def listar(professor: str | None = None, disciplina: str = "", serie: str = "", 
         params += [f"%{busca.lower()}%", f"%{busca.lower()}%"]
     where = ("WHERE " + " AND ".join(cond)) if cond else ""
     sql = _q(f"""SELECT id, criado_em, professor, professor_email, disciplina, serie, tema, data_ref, visto_em, visto_por,
-                        visto_codigo, drive_link, drive_em
+                        visto_codigo, drive_link, drive_em, dados_json
                  FROM planos {where} ORDER BY id DESC LIMIT {int(limite)}""")
     with conexao() as con:
-        return _linhas(con.execute(sql, params))
+        rows = _linhas(con.execute(sql, params))
+    for r in rows:   # expõe só o conteúdo (campo digitado pelo professor), sem inflar a resposta
+        try:
+            r["conteudo"] = (json.loads(r.pop("dados_json") or "{}").get("conteudo") or "")[:200]
+        except Exception:
+            r.pop("dados_json", None); r["conteudo"] = ""
+    return rows
 
 
 def excluir(id_: int):
@@ -419,3 +425,26 @@ def trechos_listar(doc_ids: list[int] | None) -> list[dict]:
             return _linhas(con.execute(sql, tuple(doc_ids)))
         return _linhas(con.execute("""SELECT t.id, t.documento_id, t.texto, d.titulo FROM trechos t
                                       JOIN documentos d ON d.id=t.documento_id WHERE d.ativo=1"""))
+
+
+def semelhantes(professor: str, professor_email: str | None, disciplina: str, serie: str,
+                data_ref: str, conteudo: str, limite: int = 5) -> list[dict]:
+    """Planos do mesmo professor com o mesmo contexto: mesma disciplina+série e (mesma semana OU conteúdo/tema parecido)."""
+    import unicodedata, re as _re
+
+    def norm(t: str) -> set:
+        t = unicodedata.normalize("NFKD", t or "").encode("ascii", "ignore").decode().lower()
+        return {w for w in _re.split(r"[^a-z0-9]+", t) if len(w) > 3}
+
+    itens = listar(professor=professor, professor_email=professor_email, disciplina=disciplina, serie=serie, limite=300)
+    alvo = norm(conteudo)
+    out = []
+    for i in itens:
+        mesma_semana = (i.get("data_ref") or "").strip() == (data_ref or "").strip()
+        pal = norm((i.get("tema") or "") + " " + (i.get("conteudo") or ""))
+        inter = len(alvo & pal)
+        parecido = bool(alvo) and (inter / max(1, min(len(alvo), len(pal)))) >= 0.6
+        if mesma_semana or parecido:
+            i["motivo"] = "mesma semana" if mesma_semana else "conteúdo parecido"
+            out.append(i)
+    return out[:limite]
