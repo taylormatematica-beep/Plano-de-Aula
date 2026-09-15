@@ -424,6 +424,35 @@ def api_gerar():
     return jsonify({"id": id_, "dados": dados, "plano": plano})
 
 
+@app.route("/api/historico/<int:id_>/salvar", methods=["POST"])
+def api_historico_salvar(id_):
+    """Salva as edições feitas na tela. Se o plano tinha visto, o visto é removido (o conteúdo mudou)."""
+    item = db.obter(id_)
+    if not item:
+        return jsonify({"erro": "não encontrado"}), 404
+    if not _pode_ver(item):
+        return jsonify({"erro": "sem permissão"}), 403
+    body = request.get_json(force=True) or {}
+    dados, plano = body.get("dados") or item["dados"], body.get("plano") or item["plano"]
+    plano = {k: v for k, v in plano.items() if not k.startswith("_")}
+    # mantém campos internos (e-mail do professor etc.)
+    for k in ("professor_email",):
+        if item["dados"].get(k) and not dados.get(k):
+            dados[k] = item["dados"][k]
+    tinha_visto = bool(item.get("visto_em"))
+    db.atualizar(id_, dados, plano)
+    if tinha_visto:
+        db.marcar_visto(id_, "", desfazer=True)
+    # se já está no Drive, atualiza o arquivo (sem carimbo agora)
+    aviso = ""
+    if item.get("drive_file_id") and drive.conectado():
+        try:
+            _enviar_drive(id_, dados, plano)
+        except Exception as e:  # noqa: BLE001
+            aviso = f"Salvo, mas não foi possível atualizar o PDF no Drive: {e}"
+    return jsonify({"ok": True, "visto_removido": tinha_visto, "aviso": aviso})
+
+
 @app.route("/api/pdf", methods=["POST"])
 def api_pdf():
     body = request.get_json(force=True) or {}
