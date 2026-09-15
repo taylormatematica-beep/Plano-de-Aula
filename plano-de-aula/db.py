@@ -340,6 +340,27 @@ def usuarios_listar() -> list[dict]:
             "FROM usuarios ORDER BY nome, email"))
 
 
+def planos_por_professor() -> dict:
+    """{professor_email_ou_nome: {"total": n, "visados": n, "ultimo": data}} para o relatório de usuários."""
+    with conexao() as con:
+        linhas = _linhas(con.execute(
+            "SELECT professor, dados_json, visto_em, criado_em FROM planos"))
+    out: dict = {}
+    for l in linhas:
+        try:
+            email = (json.loads(l["dados_json"] or "{}").get("professor_email") or "").lower()
+        except Exception:
+            email = ""
+        for chave in {email, (l["professor"] or "").strip().lower()} - {""}:
+            d = out.setdefault(chave, {"total": 0, "visados": 0, "ultimo": ""})
+            d["total"] += 1
+            if l["visto_em"]:
+                d["visados"] += 1
+            if (l["criado_em"] or "") > d["ultimo"]:
+                d["ultimo"] = l["criado_em"] or ""
+    return out
+
+
 def usuarios_total_supervisao() -> int:
     with conexao() as con:
         cur = con.execute("SELECT COUNT(*) FROM usuarios WHERE perfil='supervisao' AND ativo=1")

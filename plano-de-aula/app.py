@@ -865,6 +865,94 @@ def api_usuarios():
     return jsonify(db.usuarios_listar())
 
 
+def _dt_br(txt: str) -> str:
+    """'2026-09-15 14:03:00' -> '15/09/2026 14:03' (texto vazio se não houver)."""
+    if not txt:
+        return ""
+    t = str(txt)[:16].replace("T", " ")
+    try:
+        return datetime.strptime(t, "%Y-%m-%d %H:%M").strftime("%d/%m/%Y %H:%M")
+    except ValueError:
+        return t
+
+
+@app.route("/usuarios/exportar")
+def usuarios_exportar():
+    """Baixa a lista de usuários em Excel (padrão) ou CSV (?formato=csv). Só supervisão."""
+    if not _e_supervisao():
+        return redirect(url_for("login"))
+    formato = (request.args.get("formato") or "xlsx").lower()
+    usuarios = db.usuarios_listar()
+    try:
+        stats = db.planos_por_professor()
+    except Exception:
+        stats = {}
+    cab = ["Nome", "E-mail", "Perfil", "Situação", "Senha", "Planos criados", "Planos visados",
+           "Último plano", "Último acesso", "Cadastrado em", "Pasta no Drive"]
+    linhas = []
+    for u in usuarios:
+        st = stats.get((u.get("email") or "").lower()) or stats.get((u.get("nome") or "").strip().lower()) or {}
+        linhas.append([
+            u.get("nome") or "", u.get("email") or "",
+            "Supervisão" if u.get("perfil") == "supervisao" else "Professor(a)",
+            "Ativo" if u.get("ativo") else "Desativado",
+            "Definida" if u.get("tem_senha") else "Pendente",
+            st.get("total", 0), st.get("visados", 0), _dt_br(st.get("ultimo", "")),
+            _dt_br(u.get("ultimo_acesso")), _dt_br(u.get("criado_em")),
+            f"https://drive.google.com/drive/folders/{u['drive_pasta_id']}" if u.get("drive_pasta_id") else "",
+        ])
+    nome_arq = f"usuarios-{fuso.hoje().strftime('%Y-%m-%d')}"
+    if formato == "csv":
+        import csv
+        from io import StringIO
+        buf = StringIO()
+        w = csv.writer(buf, delimiter=";", lineterminator="\r\n")
+        w.writerow(cab)
+        w.writerows(linhas)
+        dados = ("\ufeff" + buf.getvalue()).encode("utf-8")  # BOM: Excel abre com acentos certos
+        return send_file(BytesIO(dados), mimetype="text/csv",
+                         as_attachment=True, download_name=nome_arq + ".csv")
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Usuários"
+    ws.append(cab)
+    for c in ws[1]:
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = PatternFill("solid", fgColor="1F4E79")
+        c.alignment = Alignment(vertical="center")
+    for l in linhas:
+        ws.append(l)
+    larguras = [32, 38, 13, 12, 10, 14, 14, 17, 17, 17, 60]
+    for i, w_ in enumerate(larguras, 1):
+        ws.column_dimensions[get_column_letter(i)].width = w_
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
+    # aba resumo
+    r = wb.create_sheet("Resumo")
+    total = len(usuarios)
+    ativos = sum(1 for u in usuarios if u.get("ativo"))
+    pend = sum(1 for u in usuarios if u.get("ativo") and not u.get("tem_senha"))
+    sup = sum(1 for u in usuarios if u.get("perfil") == "supervisao")
+    planos = sum(l[5] for l in linhas)
+    visados = sum(l[6] for l in linhas)
+    for a, b in [("Gerado em", fuso.agora().strftime("%d/%m/%Y %H:%M")), ("Usuários cadastrados", total),
+                 ("Ativos", ativos), ("Senha pendente", pend), ("Supervisão", sup),
+                 ("Planos criados (total)", planos), ("Planos visados (total)", visados)]:
+        r.append([a, b])
+    r.column_dimensions["A"].width = 26
+    r.column_dimensions["B"].width = 20
+    for c in r["A"]:
+        c.font = Font(bold=True)
+    out = BytesIO()
+    wb.save(out)
+    out.seek(0)
+    return send_file(out, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                     as_attachment=True, download_name=nome_arq + ".xlsx")
+
+
 @app.route("/api/usuarios", methods=["POST"])
 def api_usuarios_criar():
     """Cadastra (um ou vários) e-mails e envia o link de criação de senha."""
