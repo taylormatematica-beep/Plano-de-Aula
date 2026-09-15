@@ -177,7 +177,7 @@ MODELOS_GEMINI_DESCONTINUADOS = {"gemini-1.5-flash", "gemini-1.5-pro", "gemini-1
                                  "gemini-1.5-flash-latest", "gemini-1.5-pro-latest", "gemini-pro"}
 TENTATIVAS_POR_MODELO = 2              # tentativas por modelo quando o Google responde 500/503
 ESPERA_ENTRE_TENTATIVAS = (2, 4, 6)    # segundos
-MAX_MODELOS_TENTADOS = 4               # depois disso, desiste e avisa (em vez de esperar minutos)
+MAX_MODELOS_TENTADOS = 6               # depois disso, desiste e avisa (em vez de esperar minutos)
 _cache_modelos: dict = {"chave": None, "lista": [], "quando": 0.0}
 
 GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
@@ -219,10 +219,15 @@ def _ordenar_candidatos(preferido: str, disponiveis: list[str]) -> list[str]:
 
     disp = [d for d in disponiveis if util(d)]
     ordem: list[str] = []
-    if preferido and preferido not in MODELOS_GEMINI_DESCONTINUADOS:
+    # o modelo configurado só entra se existir para esta chave (ou se não foi possível listar)
+    if preferido and preferido not in MODELOS_GEMINI_DESCONTINUADOS and (not disp or preferido in disp):
         ordem.append(preferido)
     for m in GEMINI_PREFERIDOS:
         if (not disp or m in disp) and m not in ordem:
+            ordem.append(m)
+    # cota: os "lite" costumam ter limite diário bem maior -> entram logo após o preferido
+    for m in sorted(disp, reverse=True):
+        if "lite" in m and m not in ordem:
             ordem.append(m)
     # demais flash disponíveis (mais novos primeiro pela ordenação alfabética inversa)
     for m in sorted(disp, reverse=True):
@@ -250,7 +255,26 @@ def _msg_erro_google(r: requests.Response) -> str:
         return r.reason or ""
 
 
+def _chaves_gemini(cfg: dict) -> list[str]:
+    """Chave principal + extras (AI_API_KEYS_EXTRA, separadas por vírgula). Usadas em rodízio quando a cota estoura."""
+    extras = [k.strip() for k in os.getenv("AI_API_KEYS_EXTRA", "").split(",") if k.strip()]
+    return [cfg["api_key"]] + [k for k in extras if k != cfg["api_key"]]
+
+
 def _chamar_gemini(cfg: dict, prompt: str) -> str:
+    chaves = _chaves_gemini(cfg)
+    ultimo_erro = None
+    for i, chave in enumerate(chaves):
+        try:
+            return _chamar_gemini_com_chave({**cfg, "api_key": chave}, prompt)
+        except RuntimeError as e:
+            ultimo_erro = e
+            if "cota" not in str(e).lower() or i == len(chaves) - 1:
+                raise
+    raise ultimo_erro  # pragma: no cover
+
+
+def _chamar_gemini_com_chave(cfg: dict, prompt: str) -> str:
     body = {
         "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
@@ -270,6 +294,7 @@ def _chamar_gemini(cfg: dict, prompt: str) -> str:
     candidatos = _ordenar_candidatos(cfg["model"].strip(), disponiveis)
 
     erros = []
+    houve_429 = False
     for m in candidatos:
         for tentativa in range(TENTATIVAS_POR_MODELO):
             try:
@@ -302,13 +327,24 @@ def _chamar_gemini(cfg: dict, prompt: str) -> str:
                 raise RuntimeError("Chave de API do Gemini inválida ou sem permissão. "
                                    "Gere outra em https://aistudio.google.com/app/apikey "
                                    "e atualize a variável AI_API_KEY.")
-            if r.status_code in (429, 500, 502, 503, 504):  # limite/sobrecarga -> espera e repete
+            if r.status_code == 429:                 # cota esgotada neste modelo -> próximo modelo, sem esperar
+                erros.append(f"{m}: cota esgotada (429)")
+                houve_429 = True
+                break
+            if r.status_code in (500, 502, 503, 504):  # sobrecarga -> espera curta e repete
                 erros.append(f"{m}: indisponível ({r.status_code})")
                 time.sleep(ESPERA_ENTRE_TENTATIVAS[min(tentativa, 2)])
                 continue
             erros.append(f"{m}: {r.status_code} {_msg_erro_google(r)[:120]}")
             break
 
+    if houve_429 and all("429" in e or "cota" in e for e in erros):
+        raise RuntimeError(
+            "A cota gratuita da chave do Gemini foi atingida (limite de requisições por minuto/dia). "
+            "Aguarde alguns minutos e tente de novo. Se acontecer com frequência, a supervisão pode cadastrar "
+            "chaves adicionais (AI_API_KEYS_EXTRA) ou ativar o faturamento da chave no Google AI Studio. "
+            f"Detalhes: {'; '.join(erros[-4:])}"
+        )
     lista = ", ".join(disponiveis[:15]) or "não foi possível listar"
     raise RuntimeError(
         "O serviço do Google Gemini está indisponível para todos os modelos testados. "

@@ -19,7 +19,9 @@ services:
       - key: AI_PROVIDER
         value: gemini
       - key: AI_MODEL
-        value: gemini-3.8-flash
+        value: gemini-2.5-flash
+      - key: AI_API_KEYS_EXTRA      # opcional: chaves adicionais separadas por vírgula (rodízio quando a cota estoura)
+        sync: false
       - key: AI_API_KEY
         sync: false
       - key: SUPERVISAO_EMAILS

@@ -58,3 +58,10 @@ Envio automático dos PDFs: veja `GOOGLE-DRIVE.md`.
   são entregues à IA e citados nas fontes. Sem envio, o sistema usa uma síntese interna dos cadernos.
 - Na tela principal, "Fontes de pesquisa da IA" fica recolhido, com tudo marcado por padrão — o professor
   continua preenchendo só os 4 campos.
+
+## Cota da IA (erro 429)
+A chave gratuita do Gemini tem limite de requisições por minuto e por dia, **por modelo**. Quando estoura,
+o sistema passa automaticamente para outros modelos da sua chave (inclusive os "lite", que têm cota maior).
+Para aumentar a capacidade sem pagar: crie chaves extras em contas Google diferentes (aistudio.google.com/app/apikey)
+e coloque-as no Render em `AI_API_KEYS_EXTRA`, separadas por vírgula. O sistema faz rodízio quando uma chave esgota.
+Para nunca mais estourar: ative o faturamento da chave no Google AI Studio (custo de centavos por plano).
