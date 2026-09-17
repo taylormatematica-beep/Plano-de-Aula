@@ -354,16 +354,95 @@ def _chamar_gemini_com_chave(cfg: dict, prompt: str, system: str | None = None, 
     )
 
 
+class RespostaInvalida(ValueError):
+    """A IA devolveu um texto que não é JSON legível (mesmo após tentativas de reparo)."""
+
+
+def _reparar_json(t: str) -> str:
+    """Conserta os defeitos mais comuns nas respostas da IA: aspas sem escape dentro do texto,
+    quebras de linha cruas, vírgulas faltando entre campos, vírgulas sobrando e resposta cortada no meio."""
+    out, stack = [], []
+    in_str = esc = False
+    n = len(t)
+    i = 0
+    while i < n:
+        c = t[i]
+        if in_str:
+            if esc:
+                out.append(c); esc = False
+            elif c == "\\":
+                out.append(c); esc = True
+            elif c == '"':
+                j = i + 1
+                while j < n and t[j] in " \t\r\n":
+                    j += 1
+                nxt = t[j] if j < n else ""
+                fecha = False
+                if nxt in ("", ":", "}", "]"):
+                    fecha = True
+                elif nxt == ",":                      # vírgula: fecha se depois vier outro campo/valor
+                    k = j + 1
+                    while k < n and t[k] in " \t\r\n":
+                        k += 1
+                    prox = t[k] if k < n else ""
+                    fecha = prox in ('"', "{", "[", "}", "]", "") or prox.isdigit() or prox == "-" or t.startswith(("true", "false", "null"), k)
+                elif nxt == '"' and "\n" in t[i + 1:j]:  # "valor"\n"chave" -> faltou vírgula
+                    fecha = True
+                if fecha:
+                    in_str = False; out.append(c)
+                else:
+                    out.append('\\"')                  # aspas dentro do texto
+            elif c == "\n":
+                out.append("\\n")
+            elif c == "\t":
+                out.append("\\t")
+            elif c == "\r":
+                pass
+            else:
+                out.append(c)
+        else:
+            if c == '"':
+                in_str = True; out.append(c)
+            elif c in "{[":
+                stack.append("}" if c == "{" else "]"); out.append(c)
+            elif c in "}]":
+                if stack:
+                    stack.pop()
+                out.append(c)
+            else:
+                out.append(c)
+        i += 1
+    s = "".join(out)
+    if in_str:
+        s += '"'
+    s = re.sub(r'("|\d|true|false|null|\}|\])[ \t]*\n\s*(")', r"\1,\n\2", s)   # vírgula faltando entre linhas
+    s = re.sub(r",\s*([}\]])", r"\1", s)                                          # vírgula sobrando
+    s = re.sub(r",\s*$", "", s.rstrip())
+    s = re.sub(r':\s*$', ': ""', s)                                                # cortado logo após "chave":
+    while stack:                                                                   # fecha o que ficou aberto
+        s += stack.pop()
+    return s
+
+
 def _extrair_json(texto: str) -> dict:
     texto = texto.strip()
     texto = re.sub(r"^```(?:json)?\s*|\s*```$", "", texto, flags=re.I | re.M).strip()
-    try:
-        return json.loads(texto)
-    except json.JSONDecodeError:
-        m = re.search(r"\{.*\}", texto, re.S)
-        if not m:
-            raise
-        return json.loads(m.group(0))
+    tentativas = [texto]
+    m = re.search(r"\{.*\}", texto, re.S)
+    if m:
+        tentativas.append(m.group(0))
+    ini = texto.find("{")
+    if ini >= 0:
+        tentativas.append(_reparar_json(texto[ini:]))
+    erro = None
+    for cand in tentativas:
+        try:
+            obj = json.loads(cand)
+            if isinstance(obj, dict):
+                return obj
+        except json.JSONDecodeError as e:
+            erro = e
+    raise RespostaInvalida(f"resposta da IA em formato inválido ({erro})")
 
 
 def _limpar(txt) -> str:
@@ -425,6 +504,24 @@ def _demo(dados: dict) -> dict:
 # --------------------------------------------------------------------------- #
 # Função principal
 # --------------------------------------------------------------------------- #
+def _pedir_json(cfg: dict, prompt: str, system: str | None = None, max_tokens: int = 4096) -> dict:
+    """Chama a IA e lê o JSON. Se a resposta vier mal formatada, pede de novo uma vez antes de desistir."""
+    ultimo = None
+    for tentativa in range(2):
+        if cfg["provider"] == "gemini":
+            bruto = _chamar_gemini(cfg, prompt, system, max_tokens)
+        else:
+            bruto = _chamar_openai(cfg, prompt, system, max_tokens)
+        try:
+            return _extrair_json(bruto)
+        except RespostaInvalida as e:
+            ultimo = e
+            time.sleep(1)
+    raise RuntimeError("A IA devolveu a resposta em um formato ilegível duas vezes seguidas. "
+                       "Clique em gerar novamente (costuma resolver). Se persistir, reduza o número de questões. "
+                       f"Detalhe técnico: {ultimo}")
+
+
 def gerar_plano(dados: dict, overrides: dict | None = None, contexto: str = "",
                 citacoes: list[str] | None = None) -> dict:
     cfg = carregar_config(overrides)
@@ -434,12 +531,7 @@ def gerar_plano(dados: dict, overrides: dict | None = None, contexto: str = "",
         return d
 
     prompt = montar_prompt(dados, contexto)
-    if cfg["provider"] == "gemini":
-        bruto = _chamar_gemini(cfg, prompt)
-    else:
-        bruto = _chamar_openai(cfg, prompt)
-
-    obj = _extrair_json(bruto)
+    obj = _pedir_json(cfg, prompt)
     resultado = {k: _limpar(obj.get(k, "")) for k in CAMPOS}
     resultado["tema"] = _limpar(obj.get("tema") or dados.get("conteudo", ""))
     resultado["habilidade_ef"] = _filtrar_ef(resultado.get("habilidade_ef", "")) if _quer_ef(dados) else ""
@@ -496,7 +588,8 @@ FORMATO DE RESPOSTA (JSON):
   ]
 }}
 "correta" é o índice da alternativa certa (0 = A, 4 = E). "linhas" é o espaço de resposta (4 a 10 linhas). Não inclua o valor das questões: será atribuído pelo professor.
-As questões "me" vêm primeiro, depois as "disc". Não use fórmulas em LaTeX; escreva expressões em texto simples (ex.: x² + 2x, √2, 3/4, 10⁵)."""
+As questões "me" vêm primeiro, depois as "disc". Não use fórmulas em LaTeX; escreva expressões em texto simples (ex.: x² + 2x, √2, 3/4, 10⁵).
+Seja breve em "resolucao", "resposta" e "criterios" (no máximo 3 frases cada). Dentro dos textos, use aspas simples ('assim') em vez de aspas duplas, e nunca quebre linha dentro de um valor sem usar \\n."""
 
 DIFICULDADES = {
     "facil": "fácil (reconhecimento e aplicação direta)",
@@ -603,13 +696,9 @@ def gerar_atividade(params: dict, planos: list[dict], overrides: dict | None = N
         res = _demo_atividade(params, planos)
     else:
         prompt = montar_prompt_atividade(params, planos)
-        # ~350 tokens por questão + folga
-        max_tokens = min(16384, 1500 + 400 * (n_me + n_disc))
-        if cfg["provider"] == "gemini":
-            bruto = _chamar_gemini(cfg, prompt, SYSTEM_PROMPT_ATIVIDADE, max_tokens)
-        else:
-            bruto = _chamar_openai(cfg, prompt, SYSTEM_PROMPT_ATIVIDADE, max_tokens)
-        obj = _extrair_json(bruto)
+        # ~500 tokens por questão + folga (resposta cortada = JSON inválido)
+        max_tokens = min(30000, 2500 + 700 * (n_me + n_disc))
+        obj = _pedir_json(cfg, prompt, SYSTEM_PROMPT_ATIVIDADE, max_tokens)
         res = {"titulo": _limpar(obj.get("titulo", "")), "instrucoes": _limpar(obj.get("instrucoes", "")),
                "questoes": _normalizar_questoes(obj, n_me, n_disc), "_demo": False}
         if not res["questoes"]:
