@@ -14,6 +14,8 @@ from io import BytesIO
 
 from gerador import CONFIG_FILE, carregar_config, gerar_plano
 from pdf import gerar_pdf
+from pdf_atividade import gerar_pdf_atividade, gerar_pdf_gabarito
+from gerador import gerar_atividade, TIPOS_ATIVIDADE, distribuir_valores
 import db
 import drive
 import fuso
@@ -850,6 +852,201 @@ def api_historico_drive(id_):
 # ----------------------------------------------------------------------------
 # Usuários (supervisão)
 # ----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# Provas e atividades (a partir dos planos de aula)
+# ----------------------------------------------------------------------------
+def _pode_ver_atividade(item: dict) -> bool:
+    if _e_supervisao():
+        return True
+    em = _email_professor()
+    if em and item.get("professor_email"):
+        return item["professor_email"].lower() == em.lower()
+    return (item.get("professor") or "").lower() == _nome_professor().lower()
+
+
+def _meta_atividade(item_params: dict, conteudo: dict) -> dict:
+    return {
+        "disciplina": item_params.get("disciplina", ""), "serie": item_params.get("serie", ""),
+        "professor": item_params.get("professor", ""),
+        "tipo_nome": TIPOS_ATIVIDADE.get(item_params.get("tipo", "prova"), "Prova"),
+        "avaliativa": bool(item_params.get("avaliativa")), "valor_total": item_params.get("valor_total"),
+    }
+
+
+def _params_limpos(p: dict) -> dict:
+    """Normaliza os parâmetros vindos do navegador."""
+    out = {
+        "tipo": p.get("tipo") if p.get("tipo") in TIPOS_ATIVIDADE else "prova",
+        "disciplina": str(p.get("disciplina", "")).strip(), "serie": str(p.get("serie", "")).strip(),
+        "n_me": max(0, min(30, int(p.get("n_me") or 0))), "n_disc": max(0, min(30, int(p.get("n_disc") or 0))),
+        "dificuldade": p.get("dificuldade") or "mista", "observacoes": str(p.get("observacoes", ""))[:800],
+        "avaliativa": bool(p.get("avaliativa")),
+        "planos_ids": [int(x) for x in (p.get("planos_ids") or []) if str(x).isdigit()][:20],
+    }
+    if out["avaliativa"]:
+        try:
+            out["valor_total"] = float(str(p.get("valor_total") or 10).replace(",", "."))
+        except ValueError:
+            out["valor_total"] = 10.0
+    return out
+
+
+@app.route("/atividades")
+def atividades():
+    return render_template("atividades.html", e_supervisao=_e_supervisao(), usuario=usuario_atual(),
+                           professor_atual=_nome_professor(), tipos=TIPOS_ATIVIDADE,
+                           disciplinas=DISCIPLINAS, series=SERIES, ia_configurada=bool(carregar_config()["api_key"]))
+
+
+@app.route("/api/atividades/gerar", methods=["POST"])
+def api_atividades_gerar():
+    p = _params_limpos(request.get_json(force=True) or {})
+    if not p["planos_ids"]:
+        return jsonify({"erro": "Selecione pelo menos um plano de aula."}), 400
+    if p["n_me"] + p["n_disc"] <= 0:
+        return jsonify({"erro": "Informe a quantidade de questões."}), 400
+    if p["n_me"] + p["n_disc"] > 30:
+        return jsonify({"erro": "Máximo de 30 questões por prova/atividade."}), 400
+    planos = [pl for pl in db.planos_obter_varios(p["planos_ids"]) if _pode_ver(pl)]
+    if not planos:
+        return jsonify({"erro": "Planos não encontrados."}), 404
+    p["planos_ids"] = [pl["id"] for pl in planos]
+    p["disciplina"] = p["disciplina"] or planos[0]["disciplina"]
+    p["serie"] = p["serie"] or planos[0]["serie"]
+    u = usuario_atual()
+    p["professor"] = (u or {}).get("nome") or planos[0]["professor"]
+    p["professor_email"] = (u or {}).get("email", "")
+    try:
+        conteudo = gerar_atividade(p, planos)
+    except ValueError as e:
+        return jsonify({"erro": str(e)}), 400
+    except Exception as e:  # noqa: BLE001
+        msg = re.sub(r"[?&]key=[^&\s)\]]+", "?key=***", str(e))
+        return jsonify({"erro": f"Falha ao consultar a IA: {msg}"}), 502
+    id_ = db.atividade_inserir(p, conteudo)
+    return jsonify({"id": id_, "params": p, "conteudo": conteudo})
+
+
+@app.route("/api/atividades")
+def api_atividades():
+    a = request.args
+    if _e_supervisao():
+        itens = db.atividades_listar(professor=a.get("professor", "").strip() or None, disciplina=a.get("disciplina", ""),
+                                     serie=a.get("serie", ""), busca=a.get("busca", ""))
+    else:
+        itens = db.atividades_listar(professor=_nome_professor(), professor_email=_email_professor() or None,
+                                     disciplina=a.get("disciplina", ""), serie=a.get("serie", ""), busca=a.get("busca", ""))
+    return jsonify(itens)
+
+
+@app.route("/api/atividades/<int:id_>")
+def api_atividade_item(id_):
+    item = db.atividade_obter(id_)
+    if not item:
+        return jsonify({"erro": "não encontrado"}), 404
+    if not _pode_ver_atividade(item):
+        return jsonify({"erro": "sem permissão"}), 403
+    return jsonify(item)
+
+
+@app.route("/api/atividades/<int:id_>/salvar", methods=["POST"])
+def api_atividade_salvar(id_):
+    item = db.atividade_obter(id_)
+    if not item:
+        return jsonify({"erro": "não encontrado"}), 404
+    if not _pode_ver_atividade(item):
+        return jsonify({"erro": "sem permissão"}), 403
+    body = request.get_json(force=True) or {}
+    params = dict(item["params"])
+    novos = body.get("params") or {}
+    for k in ("tipo", "avaliativa", "valor_total"):
+        if k in novos:
+            params[k] = novos[k]
+    params["avaliativa"] = bool(params.get("avaliativa"))
+    conteudo = body.get("conteudo") or item["conteudo"]
+    qs = []
+    for q in conteudo.get("questoes") or []:
+        q = {k: v for k, v in q.items() if not str(k).startswith("_")}
+        if params["avaliativa"]:
+            try:
+                q["valor"] = round(float(str(q.get("valor", 0)).replace(",", ".")), 2)
+            except ValueError:
+                q["valor"] = 0
+        else:
+            q.pop("valor", None)
+        qs.append(q)
+    conteudo["questoes"] = qs
+    if params["avaliativa"]:
+        params["valor_total"] = round(sum(float(q.get("valor") or 0) for q in qs), 2)
+    db.atividade_atualizar(id_, params, conteudo)
+    aviso = ""
+    if item.get("drive_file_id") and drive.conectado():
+        try:
+            _enviar_drive_atividade(id_, params, conteudo)
+        except Exception as e:  # noqa: BLE001
+            aviso = f"Salvo, mas não foi possível atualizar o PDF no Drive: {str(e)[:120]}"
+    return jsonify({"ok": True, "params": params, "aviso": aviso})
+
+
+@app.route("/api/atividades/<int:id_>/pdf")
+def api_atividade_pdf(id_):
+    item = db.atividade_obter(id_)
+    if not item:
+        return "não encontrado", 404
+    if not _pode_ver_atividade(item):
+        return "sem permissão", 403
+    gabarito = request.args.get("gabarito") == "1"
+    meta = _meta_atividade(item["params"], item["conteudo"])
+    pdf = (gerar_pdf_gabarito if gabarito else gerar_pdf_atividade)(item["conteudo"], meta)
+    p = item["params"]
+    nome = f"{'gabarito' if gabarito else _slug(p.get('tipo','prova'))}-{_slug(p.get('disciplina',''))}-{_slug(p.get('serie',''))}-{_slug(item['conteudo'].get('titulo',''))[:40]}.pdf"
+    return send_file(BytesIO(pdf), mimetype="application/pdf", as_attachment=True, download_name=nome)
+
+
+@app.route("/api/atividades/<int:id_>", methods=["DELETE"])
+def api_atividade_excluir(id_):
+    item = db.atividade_obter(id_)
+    if not item:
+        return jsonify({"erro": "não encontrado"}), 404
+    if not _pode_ver_atividade(item):
+        return jsonify({"erro": "sem permissão"}), 403
+    db.atividade_excluir(id_)
+    return jsonify({"ok": True})
+
+
+def _enviar_drive_atividade(id_: int, params: dict, conteudo: dict) -> dict:
+    item = db.atividade_obter(id_) or {}
+    meta = _meta_atividade(params, conteudo)
+    pdf = gerar_pdf_atividade(conteudo, meta)
+    d = {"professor": params.get("professor", ""), "disciplina": params.get("disciplina", ""), "serie": params.get("serie", ""),
+         "data": "", "_tema": conteudo.get("titulo", ""),
+         "_nome_arquivo": f"{meta['tipo_nome']} - {params.get('disciplina','')} - {params.get('serie','')} - {conteudo.get('titulo','')[:60]} - {params.get('professor','')}.pdf"}
+    em = (item.get("professor_email") or params.get("professor_email") or "").strip()
+    if em:
+        u = db.usuario_por_email(em)
+        if u and u.get("drive_pasta_id"):
+            d["_pasta_id"] = u["drive_pasta_id"]
+    info = drive.enviar_pdf(pdf, d, file_id_existente=item.get("drive_file_id"))
+    db.atividade_set_drive(id_, info["id"], info["link"])
+    return info
+
+
+@app.route("/api/atividades/<int:id_>/drive", methods=["POST"])
+def api_atividade_drive(id_):
+    item = db.atividade_obter(id_)
+    if not item:
+        return jsonify({"erro": "não encontrado"}), 404
+    if not _pode_ver_atividade(item):
+        return jsonify({"erro": "sem permissão"}), 403
+    if not drive.conectado():
+        return jsonify({"erro": "Google Drive não conectado."}), 400
+    try:
+        info = _enviar_drive_atividade(id_, item["params"], item["conteudo"])
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"erro": f"Falha ao enviar ao Drive: {str(e)[:200]}"}), 502
+    return jsonify(info)
+
+
 @app.route("/usuarios")
 def usuarios():
     if not _e_supervisao():

@@ -127,6 +127,24 @@ def init():
             texto         TEXT NOT NULL
         )""")
         con.execute("CREATE INDEX IF NOT EXISTS idx_trechos_doc ON trechos(documento_id)")
+        con.execute(f"""CREATE TABLE IF NOT EXISTS atividades (
+            id              {pk},
+            criado_em       TEXT NOT NULL,
+            professor       TEXT NOT NULL,
+            professor_email TEXT,
+            disciplina      TEXT NOT NULL,
+            serie           TEXT NOT NULL,
+            tipo            TEXT NOT NULL,
+            titulo          TEXT,
+            avaliativa      INTEGER NOT NULL DEFAULT 0,
+            valor_total     REAL,
+            planos_ids      TEXT,
+            params_json     TEXT NOT NULL,
+            conteudo_json   TEXT NOT NULL,
+            drive_file_id   TEXT,
+            drive_link      TEXT,
+            drive_em        TEXT
+        )""")
     for col in ("drive_pasta_id",):
         try:
             with conexao() as con:
@@ -469,3 +487,94 @@ def semelhantes(professor: str, professor_email: str | None, disciplina: str, se
             i["motivo"] = "mesma semana" if mesma_semana else "conteúdo parecido"
             out.append(i)
     return out[:limite]
+
+
+# ---------------------------------------------------------------- provas e atividades
+def atividade_inserir(params: dict, conteudo: dict) -> int:
+    sql = _q("""INSERT INTO atividades (criado_em, professor, professor_email, disciplina, serie, tipo, titulo,
+                avaliativa, valor_total, planos_ids, params_json, conteudo_json)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id""")
+    vals = (fuso.agora_txt(), (params.get("professor") or "").strip(),
+            (params.get("professor_email") or "").lower().strip() or None,
+            params.get("disciplina", ""), params.get("serie", ""), params.get("tipo", "prova"),
+            conteudo.get("titulo", ""), 1 if params.get("avaliativa") else 0,
+            float(params.get("valor_total") or 0) if params.get("avaliativa") else None,
+            ",".join(str(i) for i in params.get("planos_ids") or []),
+            json.dumps(params, ensure_ascii=False), json.dumps(conteudo, ensure_ascii=False))
+    with conexao() as con:
+        return int(con.execute(sql, vals).fetchone()[0])
+
+
+def atividade_atualizar(id_: int, params: dict, conteudo: dict):
+    sql = _q("""UPDATE atividades SET tipo=?, titulo=?, avaliativa=?, valor_total=?, params_json=?, conteudo_json=?
+                WHERE id=?""")
+    with conexao() as con:
+        con.execute(sql, (params.get("tipo", "prova"), conteudo.get("titulo", ""), 1 if params.get("avaliativa") else 0,
+                          float(params.get("valor_total") or 0) if params.get("avaliativa") else None,
+                          json.dumps(params, ensure_ascii=False), json.dumps(conteudo, ensure_ascii=False), id_))
+
+
+def atividade_obter(id_: int) -> dict | None:
+    with conexao() as con:
+        rows = _linhas(con.execute(_q("SELECT * FROM atividades WHERE id=?"), (id_,)))
+    if not rows:
+        return None
+    r = rows[0]
+    r["params"] = json.loads(r.pop("params_json"))
+    r["conteudo"] = json.loads(r.pop("conteudo_json"))
+    return r
+
+
+def atividades_listar(professor: str | None = None, professor_email: str | None = None,
+                      disciplina: str = "", serie: str = "", busca: str = "", limite: int = 500) -> list[dict]:
+    cond, params = [], []
+    if professor_email:
+        cond.append("(LOWER(professor_email)=LOWER(?) OR (professor_email IS NULL AND LOWER(professor)=LOWER(?)))")
+        params += [professor_email.strip(), (professor or "").strip()]
+    elif professor:
+        cond.append("LOWER(professor)=LOWER(?)"); params.append(professor.strip())
+    if disciplina:
+        cond.append("disciplina=?"); params.append(disciplina)
+    if serie:
+        cond.append("serie=?"); params.append(serie)
+    if busca:
+        cond.append("(LOWER(titulo) LIKE ? OR LOWER(professor) LIKE ?)")
+        params += [f"%{busca.lower()}%"] * 2
+    where = ("WHERE " + " AND ".join(cond)) if cond else ""
+    sql = _q(f"""SELECT id, criado_em, professor, professor_email, disciplina, serie, tipo, titulo, avaliativa,
+                        valor_total, planos_ids, drive_link, drive_em, conteudo_json
+                 FROM atividades {where} ORDER BY id DESC LIMIT {int(limite)}""")
+    with conexao() as con:
+        rows = _linhas(con.execute(sql, params))
+    for r in rows:
+        try:
+            r["n_questoes"] = len(json.loads(r.pop("conteudo_json") or "{}").get("questoes") or [])
+        except Exception:
+            r.pop("conteudo_json", None); r["n_questoes"] = 0
+    return rows
+
+
+def atividade_excluir(id_: int):
+    with conexao() as con:
+        con.execute(_q("DELETE FROM atividades WHERE id=?"), (id_,))
+
+
+def atividade_set_drive(id_: int, file_id: str | None, link: str | None):
+    with conexao() as con:
+        con.execute(_q("UPDATE atividades SET drive_file_id=?, drive_link=?, drive_em=? WHERE id=?"),
+                    (file_id, link, fuso.agora_txt() if file_id else None, id_))
+
+
+def planos_obter_varios(ids: list[int]) -> list[dict]:
+    """Planos completos (dados + plano) na ordem dos ids informados."""
+    ids = [int(i) for i in ids][:20]
+    if not ids:
+        return []
+    marcas = ",".join("?" * len(ids))
+    with conexao() as con:
+        rows = _linhas(con.execute(_q(f"SELECT * FROM planos WHERE id IN ({marcas})"), ids))
+    por_id = {}
+    for r in rows:
+        r["dados"] = json.loads(r.pop("dados_json")); r["plano"] = json.loads(r.pop("plano_json"))
+        por_id[r["id"]] = r
+    return [por_id[i] for i in ids if i in por_id]

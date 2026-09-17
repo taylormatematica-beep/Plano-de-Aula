@@ -145,14 +145,15 @@ def montar_prompt(dados: dict, contexto: str = "") -> str:
 # --------------------------------------------------------------------------- #
 # Chamadas às APIs
 # --------------------------------------------------------------------------- #
-def _chamar_openai(cfg: dict, prompt: str) -> str:
+def _chamar_openai(cfg: dict, prompt: str, system: str | None = None, max_tokens: int = 4096) -> str:
     url = cfg["base_url"].rstrip("/") + "/chat/completions"
     headers = {"Authorization": f"Bearer {cfg['api_key']}", "Content-Type": "application/json"}
     body = {
         "model": cfg["model"],
         "temperature": 0.7,
+        "max_tokens": max_tokens,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system or SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
         ],
         "response_format": {"type": "json_object"},
@@ -261,12 +262,12 @@ def _chaves_gemini(cfg: dict) -> list[str]:
     return [cfg["api_key"]] + [k for k in extras if k != cfg["api_key"]]
 
 
-def _chamar_gemini(cfg: dict, prompt: str) -> str:
+def _chamar_gemini(cfg: dict, prompt: str, system: str | None = None, max_tokens: int = 4096) -> str:
     chaves = _chaves_gemini(cfg)
     ultimo_erro = None
     for i, chave in enumerate(chaves):
         try:
-            return _chamar_gemini_com_chave({**cfg, "api_key": chave}, prompt)
+            return _chamar_gemini_com_chave({**cfg, "api_key": chave}, prompt, system, max_tokens)
         except RuntimeError as e:
             ultimo_erro = e
             if "cota" not in str(e).lower() or i == len(chaves) - 1:
@@ -274,14 +275,14 @@ def _chamar_gemini(cfg: dict, prompt: str) -> str:
     raise ultimo_erro  # pragma: no cover
 
 
-def _chamar_gemini_com_chave(cfg: dict, prompt: str) -> str:
+def _chamar_gemini_com_chave(cfg: dict, prompt: str, system: str | None = None, max_tokens: int = 4096) -> str:
     body = {
-        "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+        "systemInstruction": {"parts": [{"text": system or SYSTEM_PROMPT}]},
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {
             "temperature": 0.7,
             "responseMimeType": "application/json",
-            "maxOutputTokens": 4096,
+            "maxOutputTokens": max_tokens,
             # Modelos 2.5+/3.x "pensam" antes de responder; sem limite isso pode levar 30-60 s.
             # Um orçamento pequeno mantém a qualidade do plano e corta a espera.
             "thinkingConfig": {"thinkingBudget": THINKING_BUDGET},
@@ -451,3 +452,176 @@ def gerar_plano(dados: dict, overrides: dict | None = None, contexto: str = "",
     resultado["fontes"] = fontes
     resultado["_demo"] = False
     return resultado
+
+
+# --------------------------------------------------------------------------- #
+# Provas e atividades a partir dos planos de aula
+# --------------------------------------------------------------------------- #
+TIPOS_ATIVIDADE = {
+    "prova": "Prova",
+    "simulado": "Simulado",
+    "atividade": "Atividade",
+    "lista": "Lista de exercícios",
+    "trabalho": "Trabalho",
+    "recuperacao": "Avaliação de recuperação",
+}
+
+SYSTEM_PROMPT_ATIVIDADE = """Você é um professor experiente de Ensino Médio de uma escola pública de Minas Gerais e elaborador de itens de avaliação (ENEM, SAEB, SIMAVE).
+Elabore questões originais, corretas, claras e adequadas à série, alinhadas à BNCC e ao conteúdo dos planos de aula fornecidos.
+Regras para múltipla escolha: exatamente 5 alternativas (A a E), UMA correta, distratores plausíveis (erros comuns dos estudantes), sem "todas as anteriores"/"nenhuma das anteriores", alternativas com tamanho parecido.
+Regras para discursivas: comando claro (explique, calcule, justifique, compare...), resposta esperada objetiva e critérios de correção verificáveis.
+Contextualize quando fizer sentido (situações do cotidiano, ciência, trabalho, cidadania), sem enrolação. Português do Brasil, norma culta.
+Nunca repita a mesma ideia em duas questões. Números e cálculos devem estar corretos: confira antes de responder.
+Responda EXCLUSIVAMENTE com um objeto JSON válido, sem markdown e sem texto fora do JSON."""
+
+USER_PROMPT_ATIVIDADE = """Elabore uma {tipo_nome} de {disciplina} para o {serie} do Ensino Médio com base nos planos de aula abaixo.
+
+PLANOS DE AULA (conteúdos trabalhados):
+{planos}
+
+ESPECIFICAÇÕES:
+- Quantidade: {n_me} questão(ões) de múltipla escolha e {n_disc} questão(ões) discursiva(s). Total: {total} questões, numeradas em sequência.
+- Dificuldade: {dificuldade}.
+- Distribua as questões proporcionalmente entre os conteúdos dos planos (cubra todos).
+- Ordene das mais fáceis para as mais difíceis.
+- Observações do professor: {observacoes}
+
+FORMATO DE RESPOSTA (JSON):
+{{
+  "titulo": "título curto da avaliação (ex.: 'Prova bimestral – Funções e Matrizes')",
+  "instrucoes": "3 a 5 instruções curtas ao estudante, uma por linha",
+  "questoes": [
+    {{"tipo": "me", "enunciado": "texto da questão (pode ter mais de um parágrafo, separados por \\n)", "alternativas": ["texto A", "texto B", "texto C", "texto D", "texto E"], "correta": 0, "resolucao": "resolução breve e por que a alternativa está certa", "habilidade": "código BNCC (ex.: EM13MAT302)"}},
+    {{"tipo": "disc", "enunciado": "texto da questão", "resposta": "resposta esperada completa", "criterios": "critérios de correção, um por linha (ex.: 'Identifica a fórmula correta (40%)')", "linhas": 6, "habilidade": "código BNCC"}}
+  ]
+}}
+"correta" é o índice da alternativa certa (0 = A, 4 = E). "linhas" é o espaço de resposta (4 a 10 linhas). Não inclua o valor das questões: será atribuído pelo professor.
+As questões "me" vêm primeiro, depois as "disc". Não use fórmulas em LaTeX; escreva expressões em texto simples (ex.: x² + 2x, √2, 3/4, 10⁵)."""
+
+DIFICULDADES = {
+    "facil": "fácil (reconhecimento e aplicação direta)",
+    "media": "média (aplicação e interpretação)",
+    "dificil": "difícil (análise, múltiplas etapas, situações novas)",
+    "mista": "mista: cerca de 30% fáceis, 50% médias e 20% difíceis",
+}
+
+
+def _resumo_plano(i: int, p: dict) -> str:
+    d, pl = p.get("dados", {}), p.get("plano", {})
+    partes = [f"PLANO {i} — {d.get('disciplina','')} · {d.get('serie','')} · semana {d.get('data','')}",
+              f"Tema: {pl.get('tema') or d.get('conteudo','')}",
+              f"Conteúdo: {d.get('conteudo','')}"]
+    for k, rot in (("habilidade", "Habilidade"), ("objetivo", "Objetivos"), ("metodologia", "Desenvolvimento")):
+        v = (pl.get(k) or "").strip()
+        if v:
+            partes.append(f"{rot}: {v[:900]}")
+    return "\n".join(partes)
+
+
+def montar_prompt_atividade(params: dict, planos: list[dict]) -> str:
+    n_me = int(params.get("n_me") or 0)
+    n_disc = int(params.get("n_disc") or 0)
+    return USER_PROMPT_ATIVIDADE.format(
+        tipo_nome=TIPOS_ATIVIDADE.get(params.get("tipo", "prova"), "Prova").lower(),
+        disciplina=params.get("disciplina", ""), serie=params.get("serie", ""),
+        planos="\n\n".join(_resumo_plano(i + 1, p) for i, p in enumerate(planos)),
+        n_me=n_me, n_disc=n_disc, total=n_me + n_disc,
+        dificuldade=DIFICULDADES.get(params.get("dificuldade", "mista"), DIFICULDADES["mista"]),
+        observacoes=(params.get("observacoes") or "").strip() or "nenhuma",
+    )
+
+
+def distribuir_valores(total: float, n: int) -> list[float]:
+    """Divide o valor total em n partes com 1 casa decimal; a diferença vai para a última questão."""
+    if n <= 0:
+        return []
+    base = int(total * 10 // n) / 10
+    vals = [base] * n
+    vals[-1] = round(total - base * (n - 1), 2)
+    return vals
+
+
+def _normalizar_questoes(obj: dict, n_me: int, n_disc: int) -> list[dict]:
+    out = []
+    for q in obj.get("questoes") or []:
+        if not isinstance(q, dict):
+            continue
+        tipo = "me" if str(q.get("tipo", "")).lower().startswith("m") or q.get("alternativas") else "disc"
+        item = {"tipo": tipo, "enunciado": _limpar(q.get("enunciado", "")),
+                "habilidade": _limpar(q.get("habilidade", ""))[:40]}
+        if tipo == "me":
+            alts = [_limpar(a) for a in (q.get("alternativas") or [])][:5]
+            while len(alts) < 5:
+                alts.append("")
+            try:
+                correta = int(q.get("correta", 0))
+            except (TypeError, ValueError):
+                correta = 0
+            item.update(alternativas=alts, correta=max(0, min(4, correta)), resolucao=_limpar(q.get("resolucao", "")))
+        else:
+            try:
+                linhas = int(q.get("linhas") or 6)
+            except (TypeError, ValueError):
+                linhas = 6
+            item.update(resposta=_limpar(q.get("resposta", "")), criterios=_limpar(q.get("criterios", "")),
+                        linhas=max(3, min(15, linhas)))
+        if item["enunciado"]:
+            out.append(item)
+    # garante ordem ME -> discursivas e limita à quantidade pedida
+    me = [q for q in out if q["tipo"] == "me"][:n_me]
+    disc = [q for q in out if q["tipo"] == "disc"][:n_disc]
+    return me + disc
+
+
+def _demo_atividade(params: dict, planos: list[dict]) -> dict:
+    temas = [p.get("plano", {}).get("tema") or p.get("dados", {}).get("conteudo", "") for p in planos]
+    qs = []
+    for i in range(int(params.get("n_me") or 0)):
+        t = temas[i % len(temas)] if temas else "o conteúdo"
+        qs.append({"tipo": "me", "enunciado": f"(Demonstração) Questão de múltipla escolha sobre {t}.",
+                   "alternativas": ["Alternativa A", "Alternativa B", "Alternativa C", "Alternativa D", "Alternativa E"],
+                   "correta": 0, "resolucao": "Configure a IA para gerar questões reais.", "habilidade": ""})
+    for i in range(int(params.get("n_disc") or 0)):
+        t = temas[i % len(temas)] if temas else "o conteúdo"
+        qs.append({"tipo": "disc", "enunciado": f"(Demonstração) Explique, com suas palavras, {t}.",
+                   "resposta": "Resposta esperada (modo demonstração).", "criterios": "Clareza (50%)\nCorreção conceitual (50%)",
+                   "linhas": 6, "habilidade": ""})
+    return {"titulo": f"{TIPOS_ATIVIDADE.get(params.get('tipo','prova'),'Prova')} – {', '.join(temas)[:80]}",
+            "instrucoes": "Leia com atenção.\nUse caneta azul ou preta.\nNão é permitido o uso de celular.", "questoes": qs, "_demo": True}
+
+
+def gerar_atividade(params: dict, planos: list[dict], overrides: dict | None = None) -> dict:
+    """params: tipo, disciplina, serie, n_me, n_disc, dificuldade, observacoes, avaliativa, valor_total.
+       planos: lista de itens do histórico (dados + plano). Devolve {titulo, instrucoes, questoes[]}."""
+    n_me, n_disc = int(params.get("n_me") or 0), int(params.get("n_disc") or 0)
+    if n_me + n_disc <= 0:
+        raise ValueError("Informe pelo menos uma questão.")
+    if n_me + n_disc > 30:
+        raise ValueError("Máximo de 30 questões por prova/atividade.")
+    cfg = carregar_config(overrides)
+    if not cfg["api_key"]:
+        res = _demo_atividade(params, planos)
+    else:
+        prompt = montar_prompt_atividade(params, planos)
+        # ~350 tokens por questão + folga
+        max_tokens = min(16384, 1500 + 400 * (n_me + n_disc))
+        if cfg["provider"] == "gemini":
+            bruto = _chamar_gemini(cfg, prompt, SYSTEM_PROMPT_ATIVIDADE, max_tokens)
+        else:
+            bruto = _chamar_openai(cfg, prompt, SYSTEM_PROMPT_ATIVIDADE, max_tokens)
+        obj = _extrair_json(bruto)
+        res = {"titulo": _limpar(obj.get("titulo", "")), "instrucoes": _limpar(obj.get("instrucoes", "")),
+               "questoes": _normalizar_questoes(obj, n_me, n_disc), "_demo": False}
+        if not res["questoes"]:
+            raise RuntimeError("A IA não devolveu questões válidas. Tente novamente.")
+    if not res["titulo"]:
+        res["titulo"] = f"{TIPOS_ATIVIDADE.get(params.get('tipo','prova'),'Prova')} de {params.get('disciplina','')}"
+    # valores
+    if params.get("avaliativa"):
+        try:
+            total = float(str(params.get("valor_total") or 10).replace(",", "."))
+        except ValueError:
+            total = 10.0
+        for q, v in zip(res["questoes"], distribuir_valores(total, len(res["questoes"]))):
+            q["valor"] = v
+    return res

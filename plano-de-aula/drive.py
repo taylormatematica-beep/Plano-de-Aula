@@ -254,6 +254,8 @@ def _ano_letivo(data_ref: str) -> str:
 
 
 def nome_arquivo(dados: dict) -> str:
+    if dados.get("_nome_arquivo"):
+        return dados["_nome_arquivo"].replace("  ", " ")
     return (f"Plano de Aula - {dados.get('disciplina','')} - {dados.get('serie','')} - "
             f"{_slug(dados.get('data',''))} - {dados.get('professor','')}.pdf").replace("  ", " ")
 
