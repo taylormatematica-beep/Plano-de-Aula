@@ -6,3 +6,5 @@ psycopg[binary,pool]>=3.1
 pypdf>=4.0
 openpyxl>=3.1
 segno>=1.6
+opencv-python-headless>=4.8
+numpy>=1.26

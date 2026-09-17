@@ -57,6 +57,7 @@ app.config.update(
 
 from werkzeug.middleware.proxy_fix import ProxyFix  # noqa: E402
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024   # lote de fotos de cartões-resposta
 
 ROTAS_PUBLICAS = {"login", "primeiro_acesso", "definir_senha", "static", "sup_login", "healthz",
                   "prova_entrar", "prova_aluno", "api_prova_aluno_info", "api_prova_aluno_enviar"}
@@ -118,8 +119,9 @@ def healthz():
     import importlib, traceback as tb
     linhas = []
     base = Path(__file__).parent
-    for f in ["auth.py", "email_util.py", "db.py", "drive.py", "gerador.py", "pdf.py",
+    for f in ["auth.py", "email_util.py", "db.py", "drive.py", "gerador.py", "pdf.py", "pdf_atividade.py", "correcao.py", "omr.py",
               "templates/login.html", "templates/index.html", "templates/historico.html",
+              "templates/atividades.html", "templates/correcao.html", "templates/prova_entrar.html", "templates/prova_aluno.html",
               "templates/conta.html", "templates/usuarios.html", "static/logo.png"]:
         linhas.append(f"{'OK ' if (base / f).exists() else 'FALTA'}  {f}")
     try:
@@ -1473,6 +1475,54 @@ def api_aplicacao_relatorio(ap_id):
     pdf = gerar_pdf_relatorio(item, ap, rs, correcao.estatisticas(item, rs))
     return send_file(BytesIO(pdf), mimetype="application/pdf", as_attachment=True,
                      download_name=f"resultado-{_slug(item['conteudo'].get('titulo',''))[:40]}-{ap['codigo']}.pdf")
+
+
+@app.route("/api/aplicacoes/<int:ap_id>/cartoes")
+def api_aplicacao_cartoes(ap_id):
+    """PDF com cartões-resposta em branco (?copias=N) ou pré-nomeados (?nomes=Ana|Bruno|...)."""
+    ap, item, err = _aplicacao_e_dono(ap_id)
+    if err:
+        return err
+    import omr
+    qs = item["conteudo"].get("questoes") or []
+    n_me = sum(1 for q in qs if q.get("tipo") == "me")
+    if not n_me:
+        return jsonify({"erro": "Esta prova não tem questões de múltipla escolha."}), 400
+    nomes = [n.strip() for n in (request.args.get("nomes") or "").split("|") if n.strip()][:60] or None
+    try:
+        copias = max(1, min(60, int(request.args.get("copias") or 1)))
+    except ValueError:
+        copias = 1
+    sub = f"{item['params'].get('disciplina','')} · {ap.get('turma') or item['params'].get('serie','')} · Prof. {item['params'].get('professor','')}"
+    pdf = omr.gerar_cartao_pdf(item["conteudo"].get("titulo", ""), sub, ap["codigo"], n_me, copias=copias, nomes=nomes,
+                               logo_path=Path(__file__).parent / "static" / "logo.png")
+    return send_file(BytesIO(pdf), mimetype="application/pdf", as_attachment=True,
+                     download_name=f"cartoes-resposta-{ap['codigo']}.pdf")
+
+
+@app.route("/api/aplicacoes/<int:ap_id>/ler-cartao", methods=["POST"])
+def api_aplicacao_ler_cartao(ap_id):
+    """Recebe fotos (multipart 'fotos') e devolve a leitura de cada uma para conferência. Não grava nada."""
+    ap, item, err = _aplicacao_e_dono(ap_id)
+    if err:
+        return err
+    import omr
+    qs = item["conteudo"].get("questoes") or []
+    idx_me = [i for i, q in enumerate(qs) if q.get("tipo") == "me"]
+    saida = []
+    for f in request.files.getlist("fotos")[:40]:
+        dados = f.read()
+        if len(dados) > 12 * 1024 * 1024:
+            saida.append({"arquivo": f.filename, "erro": "Foto muito grande (máx. 12 MB)."}); continue
+        try:
+            r = omr.ler_cartao(dados, len(idx_me))
+        except omr.LeituraFalhou as e:
+            saida.append({"arquivo": f.filename, "erro": str(e)}); continue
+        except Exception as e:  # noqa: BLE001
+            saida.append({"arquivo": f.filename, "erro": f"Falha ao processar a foto ({type(e).__name__})."}); continue
+        saida.append({"arquivo": f.filename, "numero": r["numero"], "numero_duvida": r["numero_duvida"],
+                      "letras": r["letras"], "duvidas": r["duvidas"], "recorte_nome": r["recorte_nome"], "miniatura": r["miniatura"]})
+    return jsonify({"leituras": saida, "n_me": len(idx_me)})
 
 
 @app.route("/correcao/<int:ap_id>")
