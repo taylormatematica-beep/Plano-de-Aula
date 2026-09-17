@@ -65,3 +65,13 @@ o sistema passa automaticamente para outros modelos da sua chave (inclusive os "
 Para aumentar a capacidade sem pagar: crie chaves extras em contas Google diferentes (aistudio.google.com/app/apikey)
 e coloque-as no Render em `AI_API_KEYS_EXTRA`, separadas por vírgula. O sistema faz rodízio quando uma chave esgota.
 Para nunca mais estourar: ative o faturamento da chave no Google AI Studio (custo de centavos por plano).
+
+## Provas e atividades
+Em **📝 Provas e atividades**, o professor marca os planos de aula que já gerou, escolhe o tipo, a quantidade de questões
+(múltipla escolha / discursivas), se é avaliativa e o valor total. A IA elabora as questões a partir dos conteúdos dos planos.
+Ele pode editar tudo, ajustar o valor de cada questão e baixar o **PDF da prova** e o **PDF do gabarito** (com resoluções e critérios).
+As provas ficam guardadas e podem ser enviadas ao Drive. A supervisão vê as de todos.
+
+Velocidade: as questões são pedidas à IA em **lotes de 4, todos ao mesmo tempo** (uma prova de 12 questões leva o tempo de uma de 4).
+Ajustes opcionais no Render: `AI_LOTE_QUESTOES` (questões por lote, padrão 4) e `AI_LOTES_PARALELOS` (lotes simultâneos, padrão 5).
+Cada lote conta como uma requisição na cota da chave — se a cota estourar com frequência, aumente `AI_LOTE_QUESTOES` para 6.

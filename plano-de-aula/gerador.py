@@ -572,7 +572,7 @@ PLANOS DE AULA (conteúdos trabalhados):
 {planos}
 
 ESPECIFICAÇÕES:
-- Quantidade: {n_me} questão(ões) de múltipla escolha e {n_disc} questão(ões) discursiva(s). Total: {total} questões, numeradas em sequência.
+- Quantidade: {n_me} questão(ões) de múltipla escolha e {n_disc} questão(ões) discursiva(s). Total: {total} questões, numeradas em sequência.{lote}
 - Dificuldade: {dificuldade}.
 - Distribua as questões proporcionalmente entre os conteúdos dos planos (cubra todos).
 - Ordene das mais fáceis para as mais difíceis.
@@ -611,10 +611,11 @@ def _resumo_plano(i: int, p: dict) -> str:
     return "\n".join(partes)
 
 
-def montar_prompt_atividade(params: dict, planos: list[dict]) -> str:
+def montar_prompt_atividade(params: dict, planos: list[dict], lote: str = "") -> str:
     n_me = int(params.get("n_me") or 0)
     n_disc = int(params.get("n_disc") or 0)
     return USER_PROMPT_ATIVIDADE.format(
+        lote=("\n- " + lote) if lote else "",
         tipo_nome=TIPOS_ATIVIDADE.get(params.get("tipo", "prova"), "Prova").lower(),
         disciplina=params.get("disciplina", ""), serie=params.get("serie", ""),
         planos="\n\n".join(_resumo_plano(i + 1, p) for i, p in enumerate(planos)),
@@ -683,6 +684,73 @@ def _demo_atividade(params: dict, planos: list[dict]) -> dict:
             "instrucoes": "Leia com atenção.\nUse caneta azul ou preta.\nNão é permitido o uso de celular.", "questoes": qs, "_demo": True}
 
 
+LOTE_MAX = int(os.getenv("AI_LOTE_QUESTOES", "4"))     # questões por pedido à IA (pedidos rodam em paralelo)
+LOTES_PARALELOS = int(os.getenv("AI_LOTES_PARALELOS", "5"))
+
+
+def _dividir_lotes(n_me: int, n_disc: int) -> list[tuple[int, int]]:
+    """Divide a prova em lotes pequenos (n_me, n_disc). Ex.: 10 ME + 4 disc -> (4,0),(4,0),(2,0),(0,4)."""
+    total = n_me + n_disc
+    if total <= LOTE_MAX:
+        return [(n_me, n_disc)]
+    lotes = []
+    for n, tipo in ((n_me, "me"), (n_disc, "disc")):
+        while n > 0:
+            k = min(LOTE_MAX, n)
+            lotes.append((k, 0) if tipo == "me" else (0, k))
+            n -= k
+    return lotes
+
+
+def _gerar_atividade_em_lotes(cfg: dict, params: dict, planos: list[dict], n_me: int, n_disc: int) -> dict:
+    """Pede as questões em vários lotes simultâneos (muito mais rápido que um pedido grande).
+       Cada lote recebe a mesma base (planos) e sabe qual parte da prova está produzindo, para não repetir."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    lotes = _dividir_lotes(n_me, n_disc)
+    total = n_me + n_disc
+    temas = [(p.get("plano", {}).get("tema") or p.get("dados", {}).get("conteudo", "")) for p in planos]
+
+    def pedir(idx: int) -> dict:
+        lm, ld = lotes[idx]
+        inicio = sum(a + b for a, b in lotes[:idx]) + 1
+        fim = inicio + lm + ld - 1
+        instr = ""
+        if len(lotes) > 1:
+            # cada lote foca em conteúdos diferentes quando há vários planos
+            foco = ""
+            if len(temas) > 1:
+                sel = [temas[(idx + j) % len(temas)] for j in range(min(len(temas), 2))]
+                foco = f" Priorize os conteúdos: {'; '.join(sel)} (sem ignorar os demais)."
+            instr = (f"ATENÇÃO: esta é a PARTE {idx + 1} de {len(lotes)} da mesma prova. Produza SOMENTE as questões "
+                     f"{inicio} a {fim} ({lm} de múltipla escolha e {ld} discursiva(s)), com dificuldade crescente dentro do lote."
+                     f" Não repita abordagens óbvias; varie contextos e operações.{foco}"
+                     f" O JSON deve conter apenas essas {lm + ld} questões.")
+        p2 = dict(params, n_me=lm if len(lotes) > 1 else n_me, n_disc=ld if len(lotes) > 1 else n_disc)
+        prompt = montar_prompt_atividade(p2, planos, instr)
+        max_tokens = min(30000, 2500 + 700 * (lm + ld))
+        obj = _pedir_json(cfg, prompt, SYSTEM_PROMPT_ATIVIDADE, max_tokens)
+        return {"titulo": _limpar(obj.get("titulo", "")), "instrucoes": _limpar(obj.get("instrucoes", "")),
+                "questoes": _normalizar_questoes(obj, lm, ld)}
+
+    if len(lotes) == 1:
+        partes = [pedir(0)]
+    else:
+        with ThreadPoolExecutor(max_workers=min(LOTES_PARALELOS, len(lotes))) as ex:
+            partes = list(ex.map(pedir, range(len(lotes))))
+
+    me = [q for p in partes for q in p["questoes"] if q["tipo"] == "me"][:n_me]
+    disc = [q for p in partes for q in p["questoes"] if q["tipo"] == "disc"][:n_disc]
+    questoes = me + disc
+    if not questoes:
+        raise RuntimeError("A IA não devolveu questões válidas. Tente novamente.")
+    if len(questoes) < total * 0.6:
+        raise RuntimeError(f"A IA devolveu só {len(questoes)} de {total} questões. Tente novamente.")
+    titulo = next((p["titulo"] for p in partes if p["titulo"]), "")
+    instrucoes = next((p["instrucoes"] for p in partes if p["instrucoes"]), "")
+    return {"titulo": titulo, "instrucoes": instrucoes, "questoes": questoes, "_demo": False}
+
+
 def gerar_atividade(params: dict, planos: list[dict], overrides: dict | None = None) -> dict:
     """params: tipo, disciplina, serie, n_me, n_disc, dificuldade, observacoes, avaliativa, valor_total.
        planos: lista de itens do histórico (dados + plano). Devolve {titulo, instrucoes, questoes[]}."""
@@ -695,14 +763,7 @@ def gerar_atividade(params: dict, planos: list[dict], overrides: dict | None = N
     if not cfg["api_key"]:
         res = _demo_atividade(params, planos)
     else:
-        prompt = montar_prompt_atividade(params, planos)
-        # ~500 tokens por questão + folga (resposta cortada = JSON inválido)
-        max_tokens = min(30000, 2500 + 700 * (n_me + n_disc))
-        obj = _pedir_json(cfg, prompt, SYSTEM_PROMPT_ATIVIDADE, max_tokens)
-        res = {"titulo": _limpar(obj.get("titulo", "")), "instrucoes": _limpar(obj.get("instrucoes", "")),
-               "questoes": _normalizar_questoes(obj, n_me, n_disc), "_demo": False}
-        if not res["questoes"]:
-            raise RuntimeError("A IA não devolveu questões válidas. Tente novamente.")
+        res = _gerar_atividade_em_lotes(cfg, params, planos, n_me, n_disc)
     if not res["titulo"]:
         res["titulo"] = f"{TIPOS_ATIVIDADE.get(params.get('tipo','prova'),'Prova')} de {params.get('disciplina','')}"
     # valores
