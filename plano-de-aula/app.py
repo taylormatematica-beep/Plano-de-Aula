@@ -1,5 +1,5 @@
 """
-Assistente de Plano de Aula — Escola Presidente Bernardes
+Docea — assistente pedagógico (Escola Presidente Bernardes)
 Execute:  python app.py   e acesse http://localhost:5000
 """
 import hashlib
@@ -660,7 +660,7 @@ def _dar_visto(item: dict, usuario: dict | None = None, base_url: str | None = N
                    f"Visto por: {por}\nEm: {dt}\nCódigo: {codigo}\n\n"
                    f"Baixe a versão assinada em: {link}\n\n"
                    "Observação: após o visto o plano fica travado para edição. Se precisar alterar, peça à supervisão para desfazer o visto.\n\n"
-                   "Escola Estadual Presidente Bernardes — Assistente de Plano de Aula")
+                   "Docea · assistente pedagógico — Escola Estadual Presidente Bernardes")
             html = email_util.template_simples("Plano de aula visado ✔", d.get("professor", ""),
                                                f"Seu plano de <b>{d.get('disciplina','')}</b> ({d.get('serie','')}), semana {d.get('data','')}, "
                                                f"tema <i>{item['plano'].get('tema','')}</i>, recebeu o <b>visto eletrônico da supervisão</b>.<br><br>"
@@ -1745,7 +1745,7 @@ def api_email_teste():
     if not dest:
         return jsonify({"erro": "Informe o destinatário."}), 400
     try:
-        email_util.enviar(dest, "Teste — Assistente de Plano de Aula",
+        email_util.enviar(dest, "Teste — Docea",
                           "Este é um e-mail de teste. Se você o recebeu, o envio está funcionando.")
     except Exception as e:  # noqa: BLE001
         return jsonify({"erro": str(e)}), 502
@@ -1871,5 +1871,5 @@ def api_config():
 
 if __name__ == "__main__":
     porta = int(os.getenv("PORT", "5000"))
-    print(f"Assistente de Plano de Aula rodando em http://localhost:{porta}")
+    print(f"Docea (assistente pedagógico) rodando em http://localhost:{porta}")
     app.run(host="0.0.0.0", port=porta, debug=False)

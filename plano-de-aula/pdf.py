@@ -76,7 +76,7 @@ def gerar_pdf(dados: dict, plano: dict, visto: dict | None = None) -> bytes:
         leftMargin=16.7 * mm, rightMargin=15.5 * mm,
         topMargin=12 * mm, bottomMargin=15 * mm,
         title=f"Plano de Aula - {dados.get('disciplina','')} - {dados.get('serie','')}",
-        author="Escola Presidente Bernardes",
+        author="Escola Presidente Bernardes", creator="Docea",
     )
     largura = A4[0] - doc.leftMargin - doc.rightMargin
     grade = TableStyle([
@@ -200,6 +200,7 @@ def gerar_pdf(dados: dict, plano: dict, visto: dict | None = None) -> bytes:
         canvas.saveState()
         canvas.setFont(FONT, 8)
         canvas.setFillColor(colors.grey)
+        canvas.drawString(d.leftMargin, 8 * mm, "Docea · assistente pedagógico")
         canvas.drawRightString(A4[0] - d.rightMargin, 8 * mm, f"Página {d.page}")
         canvas.restoreState()
 

@@ -6,7 +6,7 @@ Dois modos (o primeiro configurado é usado):
 1) API HTTP — funciona em hospedagens que bloqueiam SMTP (Render gratuito, Railway...).
    BREVO_API_KEY   chave "xkeysib-..." de https://app.brevo.com/settings/keys/api   (300 e-mails/dia grátis)
    RESEND_API_KEY  chave "re_..." de https://resend.com  (100/dia grátis; exige domínio próprio verificado)
-   EMAIL_FROM      remetente, ex.: "Assistente de Plano de Aula <escola@gmail.com>"
+   EMAIL_FROM      remetente, ex.: "Docea <escola@gmail.com>"
                    (no Brevo, o e-mail precisa estar validado em Senders)
 
 2) SMTP clássico (Gmail com senha de app, Outlook etc.) — só em hospedagens que liberam a porta 587/465.
@@ -15,7 +15,7 @@ Variáveis de ambiente:
   SMTP_PORT      587 (STARTTLS, padrão) ou 465 (SSL)
   SMTP_USER      usuário/login do SMTP (normalmente o e-mail)
   SMTP_PASS      senha (no Gmail: "senha de app" de 16 letras)
-  SMTP_FROM      remetente exibido, ex.: "Assistente de Plano de Aula <escola@gmail.com>"
+  SMTP_FROM      remetente exibido, ex.: "Docea <escola@gmail.com>"
                  (opcional; padrão = SMTP_USER)
 """
 import os
@@ -61,7 +61,7 @@ def descricao() -> str:
 
 def _remetente() -> tuple[str, str]:
     nome, end = parseaddr(EMAIL_FROM)
-    return (nome or "Assistente de Plano de Aula", end or SMTP_USER)
+    return (nome or "Docea", end or SMTP_USER)
 
 
 def _enviar_brevo(destinatario: str, assunto: str, texto: str, html: str | None) -> None:
@@ -156,7 +156,7 @@ def template_link(titulo: str, nome: str, texto_intro: str, link: str, validade:
         f"{saudacao}\n\n{texto_intro}\n\n{link}\n\n"
         f"O link é válido por {validade} e pode ser usado uma única vez.\n"
         "Se você não solicitou este acesso, ignore este e-mail.\n\n"
-        "Escola Estadual Presidente Bernardes — Ensino Médio Integral\nAssistente de Plano de Aula"
+        "Docea · assistente pedagógico\nEscola Estadual Presidente Bernardes — Ensino Médio Integral"
     )
     html = f"""<!doctype html><html><body style="margin:0;background:#f4f4f5;font-family:Segoe UI,Arial,sans-serif;color:#222">
 <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:28px 12px">
@@ -171,7 +171,7 @@ def template_link(titulo: str, nome: str, texto_intro: str, link: str, validade:
   <p style="font-size:12px;color:#666;line-height:1.5;margin:0 0 6px">Se o botão não funcionar, copie e cole este endereço no navegador:<br><a href="{link}" style="color:#1a56b8;word-break:break-all">{link}</a></p>
   <p style="font-size:12px;color:#666;line-height:1.5;margin:0">O link é válido por {validade} e pode ser usado uma única vez. Se você não solicitou este acesso, ignore este e-mail.</p>
 </td></tr>
-<tr><td style="padding:14px 28px 22px;font-size:11px;color:#999;border-top:1px solid #eee;margin-top:10px">Assistente de Plano de Aula · Escola Estadual Presidente Bernardes</td></tr>
+<tr><td style="padding:14px 28px 22px;font-size:11px;color:#999;border-top:1px solid #eee;margin-top:10px">Docea · assistente pedagógico · Escola Estadual Presidente Bernardes</td></tr>
 </table></td></tr></table></body></html>"""
     return texto, html
 
@@ -191,5 +191,5 @@ def template_simples(titulo: str, nome: str, corpo_html: str, link: str, rotulo_
   <p style="text-align:center;margin:0 0 18px"><a href="{link}" style="display:inline-block;background:#111;color:#fff;text-decoration:none;padding:12px 26px;border-radius:8px;font-weight:600;font-size:15px">{rotulo_botao}</a></p>
   <p style="font-size:12px;color:#666;line-height:1.5;margin:0">Após o visto, o plano fica travado para edição. Se precisar alterar, peça à supervisão para desfazer o visto.</p>
 </td></tr>
-<tr><td style="padding:14px 28px 22px;font-size:11px;color:#999;border-top:1px solid #eee">Assistente de Plano de Aula · Escola Estadual Presidente Bernardes</td></tr>
+<tr><td style="padding:14px 28px 22px;font-size:11px;color:#999;border-top:1px solid #eee">Docea · assistente pedagógico · Escola Estadual Presidente Bernardes</td></tr>
 </table></td></tr></table></body></html>"""

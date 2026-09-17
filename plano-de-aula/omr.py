@@ -159,7 +159,7 @@ def gerar_cartao_pdf(titulo: str, subtitulo: str, codigo: str, n_me: int, copias
         c.drawString(X(154), Y(ex_y) - 2, "errado")
         c.setFont("Helvetica", 6)
         c.setFillGray(0.4)
-        c.drawString(X(15), Y(270), f"Assistente de Plano de Aula · cartão {codigo} · as questões correspondem às de múltipla escolha, na ordem da prova.")
+        c.drawString(X(15), Y(270), f"Docea · assistente pedagógico · cartão {codigo} · as questões correspondem às de múltipla escolha, na ordem da prova.")
         c.setFillGray(0)
         c.showPage()
     c.save()

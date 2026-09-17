@@ -34,7 +34,7 @@ A configuração é feita **uma única vez** pela coordenação (~15 min) e usa 
 3. Menu ☰ → **APIs e serviços** → **Biblioteca** → busque **Google Drive API** → **Ativar**.
 4. Menu ☰ → **APIs e serviços** → **Tela de permissão OAuth** (ou "Branding"):
    - Tipo de usuário: **Externo** → **Criar**
-   - Nome do app: `Assistente de Plano de Aula` · e-mail de suporte: o da escola · e-mail do desenvolvedor: o da escola → **Salvar e continuar** até o fim.
+   - Nome do app: `Docea` · e-mail de suporte: o da escola · e-mail do desenvolvedor: o da escola → **Salvar e continuar** até o fim.
    - Em **Público-alvo / Usuários de teste**, clique em **Adicionar usuários** e inclua o e-mail da conta da escola. *(Enquanto o app estiver em "Teste", só esses e-mails podem conectar — é suficiente.)*
 5. Menu ☰ → **APIs e serviços** → **Credenciais** → **+ Criar credenciais** → **ID do cliente OAuth**:
    - Tipo de aplicativo: **Aplicativo da Web**
@@ -62,7 +62,7 @@ No **Render** → serviço `plano-de-aula` → **Environment** → adicione:
 
 1. Entre no sistema como **supervisão** → **⚙ Configurações** → seção **▲ Google Drive** → **Conectar Google Drive**.
 2. Escolha a conta Google da escola e clique em **Permitir**.
-   - Se aparecer "O Google não verificou este app": clique em **Avançado** → **Acessar Assistente de Plano de Aula (não seguro)**. É normal para apps internos em modo teste.
+   - Se aparecer "O Google não verificou este app": clique em **Avançado** → **Acessar Docea (não seguro)**. É normal para apps internos em modo teste.
 3. Você volta ao sistema com a mensagem **"Google Drive conectado com sucesso"**. A pasta **Planos de Aula** é criada na raiz do Drive.
 
 ### Opcional: usar uma pasta que já existe

@@ -67,7 +67,7 @@ def gerar_pdf_atividade(ativ: dict, meta: dict) -> bytes:
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=16 * mm, rightMargin=16 * mm,
                             topMargin=12 * mm, bottomMargin=15 * mm,
-                            title=ativ.get("titulo") or "Atividade", author="Escola Presidente Bernardes")
+                            title=ativ.get("titulo") or "Atividade", author="Escola Presidente Bernardes", creator="Docea")
     largura = A4[0] - doc.leftMargin - doc.rightMargin
     grade = TableStyle([
         ("GRID", (0, 0), (-1, -1), 0.75, colors.black), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
@@ -163,7 +163,7 @@ def gerar_pdf_gabarito(ativ: dict, meta: dict) -> bytes:
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=16 * mm, rightMargin=16 * mm,
                             topMargin=12 * mm, bottomMargin=15 * mm,
-                            title=f"Gabarito - {ativ.get('titulo') or 'Atividade'}", author="Escola Presidente Bernardes")
+                            title=f"Gabarito - {ativ.get('titulo') or 'Atividade'}", author="Escola Presidente Bernardes", creator="Docea")
     largura = A4[0] - doc.leftMargin - doc.rightMargin
     story: list = []
     _cabecalho(story, {"titulo": f"GABARITO – {ativ.get('titulo','')}"}, largura,
@@ -335,6 +335,7 @@ def gerar_pdf_relatorio(item: dict, ap: dict, respostas: list[dict], est: dict) 
 
     def rodape(canvas, d):
         canvas.saveState(); canvas.setFont(FONT, 8); canvas.setFillColor(colors.grey)
+        canvas.drawString(d.leftMargin, 8 * mm, "Docea · assistente pedagógico")
         canvas.drawRightString(A4[0] - d.rightMargin, 8 * mm, f"Página {d.page}"); canvas.restoreState()
     doc.build(story, onFirstPage=rodape, onLaterPages=rodape)
     return buf.getvalue()

@@ -14,21 +14,26 @@ Ninguém precisa ser cadastrado previamente. O nome do professor vai automaticam
 
 ## O que a supervisão precisa configurar (uma vez)
 
-### 1. E-mail de saída — Gmail da escola (5 min)
-1. Entre no Google da escola e ative a verificação em duas etapas:
-   https://myaccount.google.com/signinoptions/two-step-verification
-2. Crie uma **senha de app**: https://myaccount.google.com/apppasswords → nome `Plano de Aula` → **Criar** → copie os 16 caracteres.
-3. **Render → Environment**:
+### 1. E-mail de saída — Brevo (gratuito, 5 min)
+
+> ⚠️ O plano gratuito do Render **bloqueia SMTP** (Gmail direto não funciona — dá "Network is unreachable").
+> Por isso usamos o **Brevo**, que envia por API HTTP. 300 e-mails/dia grátis, sem cartão.
+
+1. Crie a conta em **https://www.brevo.com** (pode usar o e-mail da escola). Confirme o e-mail de cadastro.
+2. **Remetente:** menu (canto superior direito) → **Senders, Domains & Dedicated IPs** → **Senders** → **Add a sender**
+   → nome `Docea`, e-mail da escola (ex.: `escola@gmail.com`) → **Save**.
+   Abra o e-mail de confirmação que o Brevo mandou e clique no link. *(O remetente precisa estar "Verified".)*
+3. **Chave da API:** https://app.brevo.com/settings/keys/api → **Generate a new API key** → nome `Plano de Aula` → copie a chave (começa com `xkeysib-`).
+4. **Render → Environment**:
 
 | Variável | Valor |
 |---|---|
-| `SMTP_HOST` | `smtp.gmail.com` |
-| `SMTP_PORT` | `587` |
-| `SMTP_USER` | e-mail da escola (ex.: `escola@gmail.com`) |
-| `SMTP_PASS` | a senha de app de 16 caracteres |
-| `SMTP_FROM` | `Assistente de Plano de Aula <escola@gmail.com>` |
+| `BREVO_API_KEY` | a chave `xkeysib-...` |
+| `EMAIL_FROM` | `Docea <escola@gmail.com>` (o mesmo e-mail validado no passo 2) |
 
-*(Alternativas: Brevo — `smtp-relay.brevo.com`; Outlook — `smtp.office365.com`; mesma porta 587.)*
+5. Após o redeploy, entre como supervisão → **👥 Usuários** → **✉ Enviar e-mail de teste para mim**.
+
+*(As variáveis `SMTP_*` podem ser removidas; só funcionam em hospedagens que liberam a porta 587.)*
 
 ### 2. Quem é supervisão + endereço público
 
@@ -44,7 +49,7 @@ Ninguém precisa ser cadastrado previamente. O nome do professor vai automaticam
 1. Acesse `/primeiro-acesso` com seu e-mail (listado em `SUPERVISAO_EMAILS`) e crie sua senha — você entra como supervisão.
 2. Envie aos professores:
 
-> **Assistente de Plano de Aula** — acesse `https://SEU-APP.onrender.com`, clique em **"É seu primeiro acesso?"**,
+> **Docea** — acesse `https://SEU-APP.onrender.com`, clique em **"É seu primeiro acesso?"**,
 > digite seu e-mail @educacao.mg.gov.br e siga o link que chegar (confira o spam). Crie sua senha e pronto.
 
 ---
@@ -63,7 +68,9 @@ desativar ou excluir. Também aceita cadastrar e-mails em lote, se um dia for ú
 ## Problemas comuns
 | Sintoma | Solução |
 |---|---|
-| "O servidor de e-mail recusou o login" | No Gmail é obrigatório usar **senha de app**, não a senha normal. |
-| E-mail não chega | Verifique spam; confira `/diagnostico` (linha E-mail SMTP); ou reenvie pela tela Usuários. |
+| "Network is unreachable" / "timed out" | A hospedagem bloqueia SMTP. Use o Brevo (API) conforme a Parte 1. |
+| "Brevo: o remetente não está validado" | Em Brevo → Senders, confirme o e-mail usado em `EMAIL_FROM`. |
+| "Brevo recusou a chave" | Copie novamente a `BREVO_API_KEY` (sem espaços). |
+| E-mail não chega | Verifique spam; use o botão de teste em Usuários; confira `/diagnostico`. |
 | Link "expirado" ou "já utilizado" | Professor usa "Esqueci minha senha" para receber outro. |
 | Sem SMTP configurado | O sistema segue funcionando: o link aparece na tela da supervisão para repassar manualmente. |

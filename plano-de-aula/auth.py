@@ -120,17 +120,17 @@ def solicitar_acesso(email: str, base_url: str, exigir_cadastro: bool = False) -
     link = f"{base_url.rstrip('/')}/senha/{token}"
     primeira = not u.get("senha_hash")
     titulo = "Crie sua senha de acesso" if primeira else "Redefinição de senha"
-    intro = ("Você foi cadastrado(a) no Assistente de Plano de Aula da Escola Presidente Bernardes. "
+    intro = ("Você foi cadastrado(a) no Docea, o assistente pedagógico da Escola Presidente Bernardes. "
              "Clique no botão abaixo para criar sua senha e começar a usar o sistema."
              if primeira else
-             "Recebemos um pedido para redefinir a senha da sua conta no Assistente de Plano de Aula. "
+             "Recebemos um pedido para redefinir a senha da sua conta no Docea (assistente pedagógico). "
              "Clique no botão abaixo para escolher uma nova senha.")
     texto, html = email_util.template_link(titulo, u.get("nome") or "", intro, link, f"{VALIDADE_HORAS} horas")
 
     resultado = {"enviado": False, "link": None, "erro": None, "novo": novo, "primeira": primeira}
     if email_util.configurado():
         try:
-            email_util.enviar(email, f"{titulo} — Assistente de Plano de Aula", texto, html)
+            email_util.enviar(email, f"{titulo} — Docea", texto, html)
             resultado["enviado"] = True
         except Exception as e:  # noqa: BLE001
             resultado["erro"] = str(e)

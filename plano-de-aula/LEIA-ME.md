@@ -1,4 +1,6 @@
-# Assistente de Plano de Aula — Presidente Bernardes
+# Docea — assistente pedagógico (Presidente Bernardes)
+
+> Nome anterior: *Assistente de Plano de Aula*. A plataforma planeja, aplica, corrige e devolve resultados; o nome acompanhou o escopo.
 
 O professor informa apenas **matéria, conteúdo, data e série**; o sistema gera, via IA,
 o restante do plano (Tema, Habilidade da BNCC, Objetivos, Metodologia, Recursos e Avaliação)

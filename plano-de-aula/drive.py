@@ -274,7 +274,7 @@ def enviar_pdf(pdf: bytes, dados: dict, file_id_existente: str | None = None) ->
         p_disc = _pasta(dados.get("disciplina", "Sem disciplina"), p_serie)
 
     nome = _limpo(nome_arquivo(dados))
-    meta = {"name": nome, "description": f"Tema: {dados.get('_tema','')} | Gerado pelo Assistente de Plano de Aula"}
+    meta = {"name": nome, "description": f"Tema: {dados.get('_tema','')} | Gerado pelo Docea (assistente pedagógico)"}
     boundary = "planoaula" + secrets.token_hex(8)
     corpo = (
         f"--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{json.dumps(meta, ensure_ascii=False)}\r\n"
