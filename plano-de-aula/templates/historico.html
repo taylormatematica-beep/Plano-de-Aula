@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Histórico de Planos — Presidente Bernardes</title>
+<title>Histórico de Planos — Docea</title>
 <style>
   :root{--preto:#111;--verm:#e10600;--cinza:#f4f4f5;--borda:#d9d9de;--txt:#222;--muted:#6b6b76}
   *{box-sizing:border-box}
@@ -33,11 +33,17 @@
   .aviso{background:#fff7e6;border:1px solid #f5d38a;color:#7a4b00;padding:10px 12px;border-radius:8px;font-size:13px;margin-bottom:14px}
   .stats{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px}
   .stat{background:var(--cinza);border-radius:8px;padding:10px 14px;font-size:13px}.stat b{font-size:18px;display:block}
+  .marca{display:inline-flex;flex-direction:column;line-height:1;text-decoration:none}
+  .marca b{font-size:22px;letter-spacing:-.5px;color:var(--azul, #1F4E79);font-weight:800}
+  .marca b::first-letter{color:var(--verm, #e10600)}
+  .marca small{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#6b6b76;margin-top:3px}
+  .brand{display:flex;align-items:center;gap:14px}
+  .brand .sep{width:1px;height:34px;background:#d9d9de}
 </style>
 </head>
 <body>
 <header>
-  <img src="/static/logo.png" alt="Presidente Bernardes">
+  <a class="brand" href="/" style="text-decoration:none"><img src="/static/logo.png" alt="Presidente Bernardes"><span class="sep"></span><span class="marca" title="Docea — assistente pedagógico"><b>Docea</b><small>assistente pedagógico</small></span></a>
   <div class="links">
     {% if e_supervisao and tem_senha_sup %}<span class="badge">Supervisão</span>{% endif %}
     <a class="link" href="/">✨ Novo plano</a><a class="link" href="/atividades">📝 Provas e atividades</a><a class="link" href="/biblioteca" style="text-decoration:none;color:inherit">📚 Referências</a>

@@ -44,11 +44,17 @@
   .pct{display:inline-block;height:10px;background:#2e9e4f;border-radius:5px;vertical-align:middle}
   textarea.papel{width:100%;min-height:120px;font-family:monospace;font-size:14px}
   .msg{font-size:13px;padding:8px 10px;border-radius:8px;margin-top:8px;display:none}.msg.err{display:block;background:#fdecea;color:#8a1c1c}.msg.ok{display:block;background:#e8f5ec;color:var(--verde)}
+  .marca{display:inline-flex;flex-direction:column;line-height:1;text-decoration:none}
+  .marca b{font-size:22px;letter-spacing:-.5px;color:var(--azul, #1F4E79);font-weight:800}
+  .marca b::first-letter{color:var(--verm, #e10600)}
+  .marca small{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#6b6b76;margin-top:3px}
+  .brand{display:flex;align-items:center;gap:14px}
+  .brand .sep{width:1px;height:34px;background:#d9d9de}
 </style>
 </head>
 <body>
 <header>
-  <img src="/static/logo.png" alt="">
+  <a class="brand" href="/" style="text-decoration:none"><img src="/static/logo.png" alt=""><span class="sep"></span><span class="marca" title="Docea — assistente pedagógico"><b>Docea</b><small>assistente pedagógico</small></span></a>
   <div class="links"><a class="link" href="/">✨ Novo plano</a><a class="link" href="/historico">🗂 Histórico</a><a class="link" href="/atividades?id={{ item.id }}">📝 Provas e atividades</a>{% if usuario %}<a class="link" href="/conta">👤 {{ usuario.nome or usuario.email }}</a>{% endif %}<a class="link" href="/sair">Sair</a></div>
 </header>
 <main>

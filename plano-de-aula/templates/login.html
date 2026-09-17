@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Acesso — Assistente de Plano de Aula</title>
+<title>Acesso — Docea</title>
 <style>
   body{font-family:"Segoe UI",Roboto,Arial,sans-serif;background:#f4f4f5;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;color:#222}
   .c{background:#fff;border:1px solid #d9d9de;border-top:4px solid #e10600;border-radius:12px;padding:28px;width:min(400px,92vw)}
@@ -18,6 +18,13 @@
   .ok{background:#e8f5ec;border:1px solid #bfe3c9;color:#186a30;padding:9px 11px;border-radius:8px;font-size:13px;margin-top:12px}
   .links{font-size:13px;text-align:center;margin-top:16px;line-height:1.9}
   .links a{color:#1a56b8;text-decoration:none}
+  .marca{display:inline-flex;flex-direction:column;line-height:1;text-decoration:none}
+  .marca b{font-size:22px;letter-spacing:-.5px;color:var(--azul, #1F4E79);font-weight:800}
+  .marca b::first-letter{color:var(--verm, #e10600)}
+  .marca small{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#6b6b76;margin-top:3px}
+  .brand{display:flex;align-items:center;gap:14px}
+  .brand .sep{width:1px;height:34px;background:#d9d9de}
+  .marca b{font-size:30px}
   .dica{font-size:12px;color:#666;margin-top:6px}
   .chk{display:flex;align-items:center;gap:8px;font-size:13px;margin-top:10px}
   .chk input{width:auto}
@@ -28,7 +35,7 @@
 <body>
 <div class="c">
   <div class="logo"><img src="/static/logo.png" alt="Presidente Bernardes"></div>
-  <h3>Assistente de Plano de Aula</h3>
+  <div style="display:flex;justify-content:center;margin:6px 0 14px"><span class="marca" title="Docea — assistente pedagógico"><b>Docea</b><small>assistente pedagógico</small></span></div>
 
   {% if modo == 'login' %}
     <p class="sub">Entre com seu e-mail institucional.</p>
