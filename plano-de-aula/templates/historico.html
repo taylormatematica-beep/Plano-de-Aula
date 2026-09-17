@@ -40,7 +40,7 @@
   <img src="/static/logo.png" alt="Presidente Bernardes">
   <div class="links">
     {% if e_supervisao and tem_senha_sup %}<span class="badge">Supervisão</span>{% endif %}
-    <a class="link" href="/">✨ Novo plano</a><a class="link" href="/biblioteca" style="text-decoration:none;color:inherit">📚 Referências</a>
+    <a class="link" href="/">✨ Novo plano</a><a class="link" href="/atividades">📝 Provas e atividades</a><a class="link" href="/biblioteca" style="text-decoration:none;color:inherit">📚 Referências</a>
     {% if e_supervisao %}<a class="link" href="/usuarios">👥 Usuários</a>{% endif %}
     {% if usuario %}<a class="link" href="/conta" title="{{ usuario.email }}">👤 {{ usuario.nome or usuario.email }}</a>{% endif %}
     <a class="link" href="/sair">Sair</a>
@@ -65,6 +65,7 @@
       {% else %}
       <span style="font-size:13px">Seus planos no Drive: <b id="driveResumo">…</b></span>
       {% endif %}
+      <button class="acao" id="btnProva" onclick="gerarProva()" disabled title="Abre a página de provas com os planos marcados já selecionados">📝 Gerar prova/atividade com os selecionados (0)</button>
       <span style="flex:1"></span>
       <button class="acao" id="btnDriveTodos" onclick="driveTodos()" title="Envia ao Google Drive todos os planos que ainda não estão lá">▲ Enviar todos ao Drive</button>
       <span id="blocoMsg" style="font-size:12px;color:var(--muted)"></span>
@@ -111,9 +112,9 @@ async function carregar(){
     $('stats').innerHTML = `<div class="stat"><b>${itens.length}</b>planos</div><div class="stat"><b>${vistos}</b>vistos pela supervisão</div><div class="stat"><b>${itens.length-vistos}</b>pendentes</div><div class="stat"><b>${new Set(itens.map(i=>i.professor.toLowerCase())).size}</b>professores</div>`;
   }
   $('lista').innerHTML = `<table><thead><tr>
-    ${SUP?'<th><input type="checkbox" id="selTodos" onchange="selTodos(this.checked)" title="Selecionar todos os pendentes"></th>':''}<th>Gerado em</th><th>Professor(a)</th><th>Disciplina</th><th>Série</th><th>Tema</th><th>Semana</th><th>Drive</th><th>Visto da supervisão</th><th></th>
+    <th><input type="checkbox" id="selTodos" onchange="selTodos(this.checked)" title="Selecionar todos"></th><th>Gerado em</th><th>Professor(a)</th><th>Disciplina</th><th>Série</th><th>Tema</th><th>Semana</th><th>Drive</th><th>Visto da supervisão</th><th></th>
   </tr></thead><tbody>${itens.map(i=>`<tr>
-    ${SUP?`<td>${i.visto_em?'':`<input type="checkbox" class="sel" value="${i.id}" onchange="atualizarBloco()">`}</td>`:''}
+    <td><input type="checkbox" class="sel" value="${i.id}" data-visto="${i.visto_em?1:0}" onchange="atualizarBloco()"></td>
     <td style="white-space:nowrap">${fmt(i.criado_em)}</td><td>${esc(i.professor)}</td><td>${esc(i.disciplina)}</td><td>${esc(i.serie)}</td>
     <td>${esc(i.tema)}</td><td style="white-space:nowrap">${esc(i.data_ref)}</td>
     <td style="white-space:nowrap">${i.drive_link?`<a class="acao" href="${esc(i.drive_link)}" target="_blank" title="salvo em ${fmt(i.drive_em)}">▲ Abrir</a>`:`<button class="acao" onclick="enviarDrive(${i.id},this)">▲ Enviar</button>`}</td>
@@ -130,11 +131,15 @@ async function enviarDrive(id,btn){
 }
 async function excluir(id){ if(!confirm('Excluir este plano do histórico?')) return;
   await fetch('/api/historico/'+id,{method:'DELETE'}); carregar(); }
-function atualizarBloco(){ const n=document.querySelectorAll('.sel:checked').length; const b=$('btnBloco'); if(!b) return; b.disabled=!n; b.textContent=`✍ Dar visto nos selecionados (${n})`; }
+function atualizarBloco(){
+  const todos=[...document.querySelectorAll('.sel:checked')], n=todos.length, pend=todos.filter(c=>c.dataset.visto==='0').length;
+  const p=$('btnProva'); if(p){ p.disabled=!n; p.textContent=`📝 Gerar prova/atividade com os selecionados (${n})`; }
+  const b=$('btnBloco'); if(!b) return; b.disabled=!pend; b.textContent=`✍ Dar visto nos selecionados (${pend})`; }
 function selTodos(v){ document.querySelectorAll('.sel').forEach(c=>c.checked=v); atualizarBloco(); }
-function selPendentes(){ selTodos(true); }
+function selPendentes(){ document.querySelectorAll('.sel').forEach(c=>c.checked=c.dataset.visto==='0'); atualizarBloco(); }
+function gerarProva(){ const ids=[...document.querySelectorAll('.sel:checked')].map(c=>c.value); if(ids.length) location.href='/atividades?planos='+ids.join(','); }
 async function vistoBloco(){
-  const ids=[...document.querySelectorAll('.sel:checked')].map(c=>c.value); if(!ids.length) return;
+  const ids=[...document.querySelectorAll('.sel:checked')].filter(c=>c.dataset.visto==='0').map(c=>c.value); if(!ids.length) return;
   if(!confirm(`Dar o visto eletrônico em ${ids.length} plano(s)?\n\nCada um receberá seu nome, data/hora e código de verificação; ficarão travados para edição e os professores serão avisados por e-mail.`)) return;
   const b=$('btnBloco'); b.disabled=true; $('blocoMsg').textContent='';
   let feitos=0, pulados=0, avisos=[];

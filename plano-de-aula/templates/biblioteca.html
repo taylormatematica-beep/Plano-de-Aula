@@ -41,7 +41,7 @@
   <img src="/static/logo.png" alt="Presidente Bernardes">
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     {% if e_supervisao %}<span class="badge">Supervisão</span>{% endif %}
-    <a class="link" href="/">✨ Novo plano</a><a class="link" href="/historico">🗂 Histórico</a>
+    <a class="link" href="/">✨ Novo plano</a><a class="link" href="/historico">🗂 Histórico</a><a class="link" href="/atividades">📝 Provas e atividades</a>
     {% if e_supervisao %}<a class="link" href="/usuarios">👥 Usuários</a>{% endif %}
     {% if usuario %}<a class="link" href="/conta">👤 {{ usuario.nome or usuario.email }}</a>{% endif %}
     <a class="link" href="/sair">Sair</a>

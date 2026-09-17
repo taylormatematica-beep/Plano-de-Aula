@@ -71,6 +71,7 @@
     <span id="cfgTxt">{% if ia_configurada %}IA ativa ({{ provider }} · {{ model }}){% else %}IA não configurada — modo demonstração{% endif %}</span>
     {% if drive_conectado %}<span class="badge-drive" title="Os PDFs são salvos automaticamente no Google Drive da escola">▲ Drive conectado</span>{% endif %}
     <a class="link" href="/historico" style="text-decoration:none;color:inherit">🗂 Histórico</a>
+    <a class="link" href="/atividades" style="text-decoration:none;color:inherit">📝 Provas e atividades</a>
     <a class="link" href="/biblioteca" style="text-decoration:none;color:inherit">📚 Referências</a>
     {% if e_supervisao %}<a class="link" href="/usuarios" style="text-decoration:none;color:inherit">👥 Usuários</a><button class="link" onclick="abrirCfg()">⚙ Configurações</button>{% endif %}
     {% if usuario and usuario.email %}<a class="link" href="/conta" style="text-decoration:none;color:inherit" title="{{ usuario.email }}">👤 {{ usuario.nome or usuario.email }}</a>{% endif %}

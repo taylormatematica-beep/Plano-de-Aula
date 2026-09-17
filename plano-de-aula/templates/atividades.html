@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Provas e Atividades — Presidente Bernardes</title>
+<style>
+  :root{--preto:#111;--verm:#e10600;--cinza:#f4f4f5;--borda:#d9d9de;--txt:#222;--muted:#6b6b76;--verde:#186a30;--azul:#1F4E79}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI",Roboto,Arial,sans-serif;background:var(--cinza);color:var(--txt)}
+  header{background:#fff;border-bottom:3px solid var(--verm);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  header img{height:44px}
+  .links{display:flex;gap:8px;align-items:center;font-size:13px;flex-wrap:wrap}
+  .link{background:none;border:1px solid var(--borda);border-radius:6px;padding:6px 10px;cursor:pointer;font-size:13px;text-decoration:none;color:inherit}
+  .badge{font-size:12px;padding:3px 8px;border-radius:12px;background:#e8f5ec;color:var(--verde);border:1px solid #bfe3c9}
+  main{max-width:1180px;margin:24px auto;padding:0 16px;display:grid;gap:18px}
+  .card{background:#fff;border:1px solid var(--borda);border-radius:10px;padding:20px}
+  h1{font-size:20px;margin:0 0 4px}h2{font-size:16px;margin:0 0 10px}.sub{font-size:13px;color:var(--muted);margin:0 0 16px}
+  .passo{display:inline-block;background:var(--preto);color:#fff;border-radius:50%;width:24px;height:24px;line-height:24px;text-align:center;font-size:13px;margin-right:8px}
+  input,select,textarea{width:100%;padding:9px 10px;border:1px solid var(--borda);border-radius:6px;font-size:14px;font-family:inherit;background:#fff}
+  label{font-size:12px;font-weight:600;color:#444;display:block;margin-bottom:4px}
+  .grid{display:grid;gap:12px}.g4{grid-template-columns:repeat(4,1fr)}.g3{grid-template-columns:repeat(3,1fr)}.g2{grid-template-columns:repeat(2,1fr)}
+  @media(max-width:800px){.g4,.g3,.g2{grid-template-columns:1fr 1fr}}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{padding:8px;border-bottom:1px solid var(--borda);text-align:left;vertical-align:middle}
+  th{font-size:12px;text-transform:uppercase;color:var(--muted);letter-spacing:.03em}
+  tr:hover td{background:#fafafa}
+  .btn{background:var(--verm);color:#fff;border:0;border-radius:8px;padding:12px 22px;font-size:15px;font-weight:600;cursor:pointer}
+  .btn:disabled{opacity:.5;cursor:default}
+  .btn.verde{background:var(--verde)}.btn.cinza{background:#fff;color:var(--txt);border:1px solid var(--borda)}
+  .acao{border:1px solid var(--borda);background:#fff;border-radius:6px;padding:5px 9px;cursor:pointer;font-size:13px;margin-right:4px;text-decoration:none;color:inherit;display:inline-block}
+  .acao.red{color:var(--verm);border-color:#f3b4b4}.acao.pdf{background:var(--verm);border-color:var(--verm);color:#fff;font-weight:600}
+  .acao.gab{background:var(--azul);border-color:var(--azul);color:#fff;font-weight:600}
+  .vazio{color:var(--muted);text-align:center;padding:30px 20px}
+  .msg{font-size:13px;padding:10px 12px;border-radius:8px;margin-top:10px;display:none}
+  .msg.err{display:block;background:#fdecea;color:#8a1c1c;border:1px solid #f3b4b4}.msg.ok{display:block;background:#e8f5ec;color:var(--verde);border:1px solid #bfe3c9}
+  .msg.info{display:block;background:#fff7e6;color:#7a4b00;border:1px solid #f5d38a}
+  .chk{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500;cursor:pointer;padding:9px 0}
+  .chk input{width:auto}
+  .sel-info{font-size:13px;color:var(--muted);margin-top:8px}
+  /* editor de questões */
+  .q{border:1px solid var(--borda);border-radius:8px;padding:12px 14px;margin-bottom:12px;background:#fff}
+  .q .top{display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap}
+  .q .num{font-weight:700}.q .tipo{font-size:11px;padding:2px 7px;border-radius:10px;background:var(--cinza);color:var(--muted)}
+  .q .valor{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:13px}.q .valor input{width:70px;text-align:right}
+  .q .hab{font-size:11px;color:var(--muted)}
+  .q textarea{min-height:60px;resize:vertical}
+  .alt{display:flex;gap:8px;align-items:center;margin-top:5px}.alt input[type=radio]{width:auto}.alt b{width:18px}
+  .alt.certa input[type=text]{border-color:#bfe3c9;background:#f2fbf4}
+  .q details{margin-top:8px;font-size:13px}.q details summary{cursor:pointer;color:var(--azul)}
+  .q .rm{margin-left:8px;color:var(--verm);background:none;border:0;cursor:pointer;font-size:13px}
+  .barra{position:sticky;bottom:0;background:#fff;border-top:1px solid var(--borda);padding:12px 0 4px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .total{font-size:14px}.total b{font-size:18px}.total.err b{color:var(--verm)}
+  .stats{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px}.stat{background:var(--cinza);border-radius:8px;padding:8px 14px;font-size:13px}.stat b{font-size:18px;display:block}
+  .spin{display:inline-block;width:14px;height:14px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:g .8s linear infinite;vertical-align:-2px;margin-right:6px}@keyframes g{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<header>
+  <img src="/static/logo.png" alt="Presidente Bernardes">
+  <div class="links">
+    {% if e_supervisao %}<span class="badge">Supervisão</span>{% endif %}
+    <a class="link" href="/">✨ Novo plano</a><a class="link" href="/historico">🗂 Histórico</a><a class="link" href="/biblioteca">📚 Referências</a>
+    {% if e_supervisao %}<a class="link" href="/usuarios">👥 Usuários</a>{% endif %}
+    {% if usuario %}<a class="link" href="/conta" title="{{ usuario.email }}">👤 {{ usuario.nome or usuario.email }}</a>{% endif %}
+    <a class="link" href="/sair">Sair</a>
+  </div>
+</header>
+
+<main>
+  <!-- ETAPA 1: escolher planos -->
+  <section class="card" id="cardPlanos">
+    <h1>📝 Provas e atividades</h1>
+    <p class="sub">Selecione os planos de aula que serão a base da prova ou atividade. As questões são elaboradas a partir dos conteúdos, habilidades e objetivos desses planos.</p>
+    {% if not ia_configurada %}<div class="msg info">IA não configurada — as questões sairão em modo demonstração.</div>{% endif %}
+    <h2><span class="passo">1</span>Escolha os planos de aula</h2>
+    <div class="grid g4" style="margin-bottom:10px">
+      {% if e_supervisao %}<div><label>Professor(a)</label><input id="fProf" placeholder="nome do professor" oninput="carregarPlanos()"></div>{% else %}<input type="hidden" id="fProf" value="{{ professor_atual }}">{% endif %}
+      <div><label>Disciplina</label><select id="fDisc" onchange="carregarPlanos()"><option value="">Todas</option>{% for d in disciplinas %}<option>{{ d }}</option>{% endfor %}</select></div>
+      <div><label>Série</label><select id="fSerie" onchange="carregarPlanos()"><option value="">Todas</option>{% for s in series %}<option>{{ s }}</option>{% endfor %}</select></div>
+      <div><label>Buscar tema</label><input id="fBusca" placeholder="ex.: funções" onkeydown="if(event.key==='Enter')carregarPlanos()"></div>
+    </div>
+    <div id="listaPlanos"><div class="vazio">Carregando…</div></div>
+    <div class="sel-info" id="selInfo">Nenhum plano selecionado.</div>
+  </section>
+
+  <!-- ETAPA 2: configurar -->
+  <section class="card" id="cardCfg">
+    <h2><span class="passo">2</span>Configure a prova / atividade</h2>
+    <div class="grid g4">
+      <div><label>Tipo</label><select id="tipo">{% for k,v in tipos.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
+      <div><label>Formato das questões</label><select id="formato" onchange="ajustarFormato()"><option value="mista">Mista (múltipla escolha + discursivas)</option><option value="me">Só múltipla escolha</option><option value="disc">Só discursivas</option></select></div>
+      <div><label>Múltipla escolha</label><input id="nMe" type="number" min="0" max="30" value="6" oninput="atualizarTotal()"></div>
+      <div><label>Discursivas</label><input id="nDisc" type="number" min="0" max="30" value="4" oninput="atualizarTotal()"></div>
+    </div>
+    <div class="grid g4" style="margin-top:12px">
+      <div><label>Dificuldade</label><select id="dif"><option value="mista">Mista (fácil → difícil)</option><option value="facil">Fácil</option><option value="media">Média</option><option value="dificil">Difícil</option></select></div>
+      <div><label class="chk" style="margin-top:18px"><input type="checkbox" id="aval" checked onchange="ajustarAval()"> Avaliativa (com valor)</label></div>
+      <div id="boxValor"><label>Valor total (pontos)</label><input id="valorTotal" type="number" min="0.5" step="0.5" value="10"></div>
+      <div><label>Total de questões</label><div style="padding:9px 0;font-size:18px;font-weight:700" id="totalQ">10</div></div>
+    </div>
+    <div style="margin-top:12px"><label>Observações para a IA (opcional)</label><input id="obs" placeholder="ex.: incluir uma questão no estilo ENEM; evitar cálculos com calculadora; contextualizar com o cotidiano"></div>
+    <div style="margin-top:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button class="btn" id="btnGerar" onclick="gerar()">✨ Gerar questões</button>
+      <span style="font-size:13px;color:var(--muted)">Os valores são divididos igualmente e podem ser ajustados questão por questão antes de baixar.</span>
+    </div>
+    <div class="msg" id="msgGerar"></div>
+  </section>
+
+  <!-- ETAPA 3: revisar/editar -->
+  <section class="card" id="cardEd" style="display:none">
+    <h2><span class="passo">3</span>Revise, ajuste e baixe</h2>
+    <div class="grid g2" style="margin-bottom:12px">
+      <div><label>Título</label><input id="edTitulo"></div>
+      <div><label>Instruções ao estudante (uma por linha)</label><textarea id="edInst" style="min-height:42px"></textarea></div>
+    </div>
+    <div id="questoes"></div>
+    <div class="barra">
+      <span class="total" id="totalBarra"></span>
+      <span style="flex:1"></span>
+      <button class="btn cinza" onclick="distribuir()" id="btnDist" title="Divide o valor total igualmente entre as questões">⚖ Dividir igualmente</button>
+      <button class="btn verde" onclick="salvar()" id="btnSalvar">💾 Salvar</button>
+      <a class="btn" id="lnkPdf" href="#" target="_blank">⬇ PDF da prova</a>
+      <a class="btn" id="lnkGab" href="#" target="_blank" style="background:var(--azul)">⬇ Gabarito</a>
+      <button class="btn cinza" id="btnDrive" onclick="enviarDrive()" style="display:none">▲ Enviar ao Drive</button>
+    </div>
+    <div class="msg" id="msgEd"></div>
+  </section>
+
+  <!-- Histórico de atividades -->
+  <section class="card">
+    <h2>🗂 Provas e atividades já geradas</h2>
+    <div class="stats" id="stats" style="display:none"></div>
+    <div id="listaAtiv"><div class="vazio">Carregando…</div></div>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const SUP = {{ 'true' if e_supervisao else 'false' }};
+const TIPOS = {{ tipos|tojson }};
+const LET = 'ABCDE';
+let planos = [], sel = new Set(), atual = null;   // atual = {id, params, conteudo}
+function esc(t){return String(t??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function fmt(dt){ if(!dt) return ''; const [d,h]=dt.split(' '); const [y,m,dd]=d.split('-'); return `${dd}/${m}/${y} ${h?h.slice(0,5):''}`; }
+function num(v){ v=parseFloat(String(v).replace(',','.')); return isNaN(v)?0:v; }
+function fv(v){ return (Math.round(num(v)*100)/100).toString().replace('.',','); }
+function msg(id, t, cls){ const e=$(id); e.className='msg '+(t?cls:''); e.textContent=t||''; }
+
+// ---------- etapa 1
+async function carregarPlanos(){
+  const q = new URLSearchParams({professor:$('fProf').value.trim(), disciplina:$('fDisc').value, serie:$('fSerie').value, busca:$('fBusca').value.trim()});
+  const r = await fetch('/api/historico?'+q); if(r.status===401){ location.href='/login?next=/atividades'; return; }
+  planos = await r.json();
+  if(!planos.length){ $('listaPlanos').innerHTML='<div class="vazio">Nenhum plano encontrado. <a href="/">Gere um plano de aula</a> primeiro.</div>'; return; }
+  $('listaPlanos').innerHTML = `<table><thead><tr><th></th><th>Semana</th>${SUP?'<th>Professor(a)</th>':''}<th>Disciplina</th><th>Série</th><th>Tema</th><th>Conteúdo</th></tr></thead><tbody>${planos.map(p=>`<tr onclick="tog(${p.id},event)" style="cursor:pointer">
+    <td><input type="checkbox" class="pl" value="${p.id}" ${sel.has(p.id)?'checked':''} onclick="event.stopPropagation();tog(${p.id})"></td>
+    <td style="white-space:nowrap">${esc(p.data_ref)}</td>${SUP?`<td>${esc(p.professor)}</td>`:''}<td>${esc(p.disciplina)}</td><td>${esc(p.serie)}</td><td>${esc(p.tema)}</td><td style="color:var(--muted);font-size:13px">${esc((p.conteudo||'').slice(0,90))}</td></tr>`).join('')}</tbody></table>`;
+  selInfo();
+}
+function tog(id,ev){ if(ev && ev.target.tagName==='INPUT') return; sel.has(id)?sel.delete(id):sel.add(id); document.querySelectorAll('.pl').forEach(c=>c.checked=sel.has(+c.value)); selInfo(); }
+function selInfo(){
+  const ps = planos.filter(p=>sel.has(p.id));
+  if(!ps.length){ $('selInfo').textContent='Nenhum plano selecionado.'; return; }
+  const disc=new Set(ps.map(p=>p.disciplina)), ser=new Set(ps.map(p=>p.serie));
+  let t=`${ps.length} plano(s) selecionado(s): ${ps.map(p=>p.tema).join(' · ')}`;
+  if(disc.size>1||ser.size>1) t+=' ⚠ Você misturou disciplinas ou séries diferentes — confira se é isso mesmo.';
+  $('selInfo').textContent=t;
+}
+
+// ---------- etapa 2
+function ajustarFormato(){ const f=$('formato').value; if(f==='me'){ $('nDisc').value=0; if(!+$('nMe').value) $('nMe').value=10; } if(f==='disc'){ $('nMe').value=0; if(!+$('nDisc').value) $('nDisc').value=5; } $('nMe').disabled=f==='disc'; $('nDisc').disabled=f==='me'; atualizarTotal(); }
+function atualizarTotal(){ $('totalQ').textContent=(+$('nMe').value||0)+(+$('nDisc').value||0); }
+function ajustarAval(){ $('boxValor').style.visibility=$('aval').checked?'visible':'hidden'; }
+async function gerar(){
+  if(!sel.size){ msg('msgGerar','Selecione pelo menos um plano de aula na etapa 1.','err'); $('cardPlanos').scrollIntoView({behavior:'smooth'}); return; }
+  const n=(+$('nMe').value||0)+(+$('nDisc').value||0);
+  if(n<1){ msg('msgGerar','Informe a quantidade de questões.','err'); return; }
+  if(n>30){ msg('msgGerar','Máximo de 30 questões.','err'); return; }
+  const ps = planos.filter(p=>sel.has(p.id));
+  const body={planos_ids:[...sel], tipo:$('tipo').value, n_me:+$('nMe').value||0, n_disc:+$('nDisc').value||0, dificuldade:$('dif').value,
+    avaliativa:$('aval').checked, valor_total:$('valorTotal').value, observacoes:$('obs').value, disciplina:ps[0]?.disciplina||'', serie:ps[0]?.serie||''};
+  const b=$('btnGerar'); b.disabled=true; b.innerHTML='<span class="spin"></span>Elaborando questões… (30 a 90 s)'; msg('msgGerar','');
+  try{
+    const r=await fetch('/api/atividades/gerar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const j=await r.json(); if(!r.ok) throw new Error(j.erro||'Erro');
+    abrir(j); msg('msgGerar',`✔ ${j.conteudo.questoes.length} questões geradas. Revise abaixo.`,'ok'); carregarAtiv();
+  }catch(e){ msg('msgGerar',e.message,'err'); }
+  b.disabled=false; b.textContent='✨ Gerar questões';
+}
+
+// ---------- etapa 3: editor
+function abrir(j){
+  atual = j; $('cardEd').style.display='';
+  $('edTitulo').value=j.conteudo.titulo||''; $('edInst').value=j.conteudo.instrucoes||'';
+  $('lnkPdf').href=`/api/atividades/${j.id}/pdf`; $('lnkGab').href=`/api/atividades/${j.id}/pdf?gabarito=1`;
+  $('btnDist').style.display=j.params.avaliativa?'':'none';
+  $('btnDrive').style.display=DRIVE?'':'none';
+  renderQ(); msg('msgEd',''); $('cardEd').scrollIntoView({behavior:'smooth'});
+}
+function renderQ(){
+  const av=atual.params.avaliativa;
+  $('questoes').innerHTML = atual.conteudo.questoes.map((q,i)=>`<div class="q" data-i="${i}">
+    <div class="top"><span class="num">Questão ${String(i+1).padStart(2,'0')}</span><span class="tipo">${q.tipo==='me'?'múltipla escolha':'discursiva'}</span>
+      <input class="hab" value="${esc(q.habilidade||'')}" placeholder="habilidade BNCC" style="width:130px;font-size:11px;padding:3px 6px" oninput="Q(${i}).habilidade=this.value">
+      ${av?`<span class="valor">Valor: <input type="number" step="0.1" min="0" value="${q.valor??0}" oninput="Q(${i}).valor=num(this.value);totalBarra()"> pt</span>`:''}
+      <button class="rm" onclick="remover(${i})" title="Remover esta questão">✕ remover</button></div>
+    <textarea oninput="Q(${i}).enunciado=this.value">${esc(q.enunciado)}</textarea>
+    ${q.tipo==='me'?(q.alternativas||[]).map((a,k)=>`<div class="alt ${q.correta===k?'certa':''}"><input type="radio" name="c${i}" ${q.correta===k?'checked':''} onchange="Q(${i}).correta=${k};renderQ()" title="marcar como correta"><b>${LET[k]})</b><input type="text" value="${esc(a)}" oninput="Q(${i}).alternativas[${k}]=this.value"></div>`).join('')
+      +`<details><summary>Resolução (só no gabarito)</summary><textarea oninput="Q(${i}).resolucao=this.value">${esc(q.resolucao||'')}</textarea></details>`
+    :`<div class="grid g2" style="margin-top:6px"><div><label>Resposta esperada (só no gabarito)</label><textarea oninput="Q(${i}).resposta=this.value">${esc(q.resposta||'')}</textarea></div>
+      <div><label>Critérios de correção (só no gabarito)</label><textarea oninput="Q(${i}).criterios=this.value">${esc(q.criterios||'')}</textarea></div></div>
+      <div style="font-size:12px;margin-top:4px">Linhas para resposta: <input type="number" min="3" max="15" value="${q.linhas||6}" style="width:60px;padding:3px 6px" oninput="Q(${i}).linhas=+this.value"></div>`}
+  </div>`).join('');
+  totalBarra();
+}
+function Q(i){ return atual.conteudo.questoes[i]; }
+function remover(i){ if(!confirm('Remover a questão '+(i+1)+'?')) return; atual.conteudo.questoes.splice(i,1); renderQ(); }
+function totalBarra(){
+  const n=atual.conteudo.questoes.length;
+  if(!atual.params.avaliativa){ $('totalBarra').innerHTML=`<b>${n}</b> questões · atividade não avaliativa`; return; }
+  const soma=atual.conteudo.questoes.reduce((s,q)=>s+num(q.valor),0), alvo=num(atual.params.valor_total);
+  const ok=Math.abs(soma-alvo)<0.01;
+  $('totalBarra').className='total'+(ok?'':' err');
+  $('totalBarra').innerHTML=`<b>${n}</b> questões · soma dos valores: <b>${fv(soma)}</b> pt`+(ok?' ✔':` (previsto: ${fv(alvo)} pt)`);
+}
+function distribuir(){
+  const n=atual.conteudo.questoes.length; if(!n) return;
+  const total=num(prompt('Valor total da prova:', fv(atual.params.valor_total||10)) ?? ''); if(!total) return;
+  atual.params.valor_total=total;
+  const base=Math.floor(total*10/n)/10;
+  atual.conteudo.questoes.forEach((q,i)=>q.valor= i===n-1 ? Math.round((total-base*(n-1))*100)/100 : base);
+  renderQ();
+}
+async function salvar(){
+  atual.conteudo.titulo=$('edTitulo').value; atual.conteudo.instrucoes=$('edInst').value;
+  const b=$('btnSalvar'); b.disabled=true;
+  const r=await fetch(`/api/atividades/${atual.id}/salvar`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({params:atual.params,conteudo:atual.conteudo})});
+  const j=await r.json(); b.disabled=false;
+  if(!r.ok){ msg('msgEd',j.erro||'Erro ao salvar','err'); return false; }
+  atual.params=j.params; totalBarra(); msg('msgEd', j.aviso || '✔ Salvo. Os PDFs já refletem as alterações.', j.aviso?'info':'ok'); carregarAtiv(); return true;
+}
+// baixar sempre salva antes (o PDF é gerado no servidor a partir do que está salvo)
+$('lnkPdf').addEventListener('click', async e=>{ e.preventDefault(); if(await salvar()) window.open(e.currentTarget.href,'_blank'); });
+$('lnkGab').addEventListener('click', async e=>{ e.preventDefault(); if(await salvar()) window.open(e.currentTarget.href,'_blank'); });
+async function enviarDrive(){
+  if(!await salvar()) return; const b=$('btnDrive'); b.disabled=true; b.textContent='Enviando…';
+  const r=await fetch(`/api/atividades/${atual.id}/drive`,{method:'POST'}); const j=await r.json(); b.disabled=false; b.textContent='▲ Enviar ao Drive';
+  msg('msgEd', r.ok?'✔ PDF da prova enviado à sua pasta no Drive.':(j.erro||'Erro'), r.ok?'ok':'err'); carregarAtiv();
+}
+async function abrirSalva(id){
+  const r=await fetch('/api/atividades/'+id); const j=await r.json(); if(!r.ok){ alert(j.erro); return; }
+  abrir({id:j.id, params:j.params, conteudo:j.conteudo});
+}
+
+// ---------- histórico de atividades
+async function carregarAtiv(){
+  const r=await fetch('/api/atividades'); if(!r.ok) return; const itens=await r.json();
+  if(!itens.length){ $('listaAtiv').innerHTML='<div class="vazio">Nenhuma prova ou atividade gerada ainda.</div>'; return; }
+  if(SUP){ $('stats').style.display='flex'; $('stats').innerHTML=`<div class="stat"><b>${itens.length}</b>atividades</div><div class="stat"><b>${itens.filter(i=>i.avaliativa).length}</b>avaliativas</div><div class="stat"><b>${new Set(itens.map(i=>i.professor.toLowerCase())).size}</b>professores</div>`; }
+  $('listaAtiv').innerHTML=`<table><thead><tr><th>Gerada em</th>${SUP?'<th>Professor(a)</th>':''}<th>Tipo</th><th>Disciplina</th><th>Série</th><th>Título</th><th>Questões</th><th>Valor</th><th>Drive</th><th></th></tr></thead><tbody>${itens.map(i=>`<tr>
+    <td style="white-space:nowrap">${fmt(i.criado_em)}</td>${SUP?`<td>${esc(i.professor)}</td>`:''}<td>${esc(TIPOS[i.tipo]||i.tipo)}</td><td>${esc(i.disciplina)}</td><td>${esc(i.serie)}</td><td>${esc(i.titulo)}</td>
+    <td>${i.n_questoes}</td><td>${i.avaliativa?fv(i.valor_total)+' pt':'<span style="color:var(--muted)">—</span>'}</td>
+    <td>${i.drive_link?`<a class="acao" href="${esc(i.drive_link)}" target="_blank">▲ Abrir</a>`:''}</td>
+    <td style="white-space:nowrap"><button class="acao" onclick="abrirSalva(${i.id})">Abrir</button><a class="acao pdf" href="/api/atividades/${i.id}/pdf">⬇ Prova</a><a class="acao gab" href="/api/atividades/${i.id}/pdf?gabarito=1">⬇ Gabarito</a><button class="acao red" onclick="excluir(${i.id})">Excluir</button></td>
+  </tr>`).join('')}</tbody></table>`;
+}
+async function excluir(id){ if(!confirm('Excluir esta prova/atividade?')) return; await fetch('/api/atividades/'+id,{method:'DELETE'}); if(atual&&atual.id===id){ $('cardEd').style.display='none'; atual=null; } carregarAtiv(); }
+
+let DRIVE=false;
+fetch('/api/drive/status').then(r=>r.json()).then(j=>{ DRIVE=!!j.conectado; }).catch(()=>{});
+// pré-seleção via /atividades?planos=1,2,3
+const pre=new URLSearchParams(location.search).get('planos'); if(pre) pre.split(',').forEach(x=>{ if(+x) sel.add(+x); });
+const ab=new URLSearchParams(location.search).get('id'); if(ab) abrirSalva(+ab);
+carregarPlanos(); carregarAtiv(); ajustarAval();
+</script>
+</body>
+</html>
