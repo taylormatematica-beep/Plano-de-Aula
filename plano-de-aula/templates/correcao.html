@@ -35,7 +35,12 @@
   .rq .esp{font-size:12px;color:var(--muted);white-space:pre-wrap}
   .rq .nota{display:flex;gap:10px;align-items:center;margin-top:8px;flex-wrap:wrap}.rq .nota input[type=number]{width:80px}.rq .nota input[type=text]{flex:1;min-width:200px}
   .conf.baixa{color:var(--verm);font-weight:600}.conf.media{color:var(--amar)}.conf.alta{color:var(--verde)}
-  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}@media(max-width:860px){.grid2{grid-template-columns:1fr}.acesso{grid-template-columns:1fr}}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .leit{display:grid;grid-template-columns:150px 1fr;gap:12px;border:1px solid var(--borda);border-radius:8px;padding:10px;margin-bottom:10px;align-items:start}
+  .leit img.mini{width:150px;border:1px solid var(--borda);cursor:zoom-in}.leit img.nome{height:34px;border:1px solid var(--borda);background:#fff;vertical-align:middle}
+  .leit .letras{display:flex;gap:3px;flex-wrap:wrap;margin-top:6px}.leit .l{width:34px;text-align:center;font-size:12px}.leit .l select{width:34px;padding:2px;font-size:12px;text-align:center}.leit .l.dv select{border-color:var(--verm);background:#fdecea}.leit .l small{display:block;color:var(--muted);font-size:10px}
+  .leit.erro{border-color:#f3b4b4;background:#fff8f8}
+  #zoom{position:fixed;inset:0;background:rgba(0,0,0,.8);display:none;align-items:center;justify-content:center;z-index:30;cursor:zoom-out}#zoom img{max-height:95vh;max-width:95vw}@media(max-width:860px){.grid2{grid-template-columns:1fr}.acesso{grid-template-columns:1fr}}
   .pct{display:inline-block;height:10px;background:#2e9e4f;border-radius:5px;vertical-align:middle}
   textarea.papel{width:100%;min-height:120px;font-family:monospace;font-size:14px}
   .msg{font-size:13px;padding:8px 10px;border-radius:8px;margin-top:8px;display:none}.msg.err{display:block;background:#fdecea;color:#8a1c1c}.msg.ok{display:block;background:#e8f5ec;color:var(--verde)}
@@ -84,8 +89,24 @@
       <h2>📊 Desempenho por questão</h2>
       <div id="porQ" class="vazio">Sem respostas corrigidas ainda.</div>
     </section>
+    <section class="card" style="grid-column:1/-1">
+      <h2>📷 Prova em papel — cartão-resposta com leitura por foto</h2>
+      <p class="sub"><b>1.</b> Imprima os cartões e distribua com a prova. <b>2.</b> Alunos preenchem as bolhas (nº da chamada + respostas). <b>3.</b> Tire uma foto de cada cartão com o celular (ou fotografe todos e envie de uma vez). <b>4.</b> Confira as leituras destacadas e clique em lançar.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+        <a class="acao az" id="lnkCartoes" href="/api/aplicacoes/{{ ap.id }}/cartoes?copias=40" target="_blank">🖨 Imprimir cartões em branco</a>
+        <span style="font-size:13px">cópias: <input type="number" id="nCopias" value="40" min="1" max="60" style="width:64px" oninput="$('lnkCartoes').href='/api/aplicacoes/{{ ap.id }}/cartoes?copias='+this.value"></span>
+        <button class="acao" onclick="$('boxNomes').style.display=$('boxNomes').style.display==='none'?'':'none'">…ou com nomes pré-impressos</button>
+        <span style="flex:1"></span>
+        <label class="acao pri" style="cursor:pointer">📷 Enviar fotos dos cartões <input type="file" id="fotos" accept="image/*" multiple capture="environment" style="display:none" onchange="lerFotos(this.files)"></label>
+      </div>
+      <div id="boxNomes" style="display:none;margin-bottom:12px"><textarea id="nomesLista" style="width:100%;min-height:70px" placeholder="Um nome por linha (na ordem da chamada). Sai um cartão por aluno, já com o nome escrito."></textarea><button class="acao az" style="margin-top:6px" onclick="cartoesNomes()">🖨 Gerar cartões com nomes</button></div>
+      <div id="leituraProg" class="msg"></div>
+      <div id="leituras"></div>
+      <div id="leiturasBarra" style="display:none;margin-top:10px;gap:8px;align-items:center;flex-wrap:wrap"><button class="acao ok" onclick="lancarLeituras()" id="btnLancarLeit">✔ Lançar e corrigir os cartões conferidos</button><span style="font-size:12px;color:var(--muted)">Só entram os cartões com nome preenchido. Questões em vermelho (dupla marcação ou marca fraca) ficam em branco a menos que você escolha a letra.</span></div>
+    </section>
+
     <section class="card">
-      <h2>📄 Prova em papel — lançar respostas</h2>
+      <h2>⌨ Prova em papel — digitar respostas</h2>
       <p class="sub">Uma linha por aluno: <b>número; nome; letras da múltipla escolha</b> (na ordem das questões; use <b>-</b> para em branco). Ex.: <code>12; Ana Souza; BCADE-A</code>. As discursivas você lança pela lupa depois, ou digita as notas no final: <code>; 2,5; 3</code>.</p>
       <textarea class="papel" id="papel" placeholder="12; Ana Souza; BCADEAB&#10;13; Bruno Lima; BCBDE-A; 2,5; 3"></textarea>
       <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="acao pri" onclick="lancar()" id="btnLancar">Lançar e corrigir</button><span style="font-size:12px;color:var(--muted)">Ordem da múltipla escolha: <span id="ordemMe"></span></span></div>
@@ -94,6 +115,7 @@
   </div>
 </main>
 
+<div id="zoom" onclick="this.style.display='none'"><img id="zoomImg"></div>
 <div class="modal" id="modal"><div class="box">
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><h2 style="margin:0" id="mTit"></h2><span style="flex:1"></span><button class="acao" onclick="fecharModal()">✕ Fechar</button></div>
   <div id="mBody"></div>
@@ -153,6 +175,51 @@ async function salvarNota(i){
 }
 async function confirmarUma(){ const r=await fetch(`/api/respostas/${atualR.id}/confirmar`,{method:'POST'}); const j=await r.json(); if(r.ok){ atualR.correcao=j.correcao; atualR.status=j.correcao.status; renderModal(); } }
 async function recorrigir(){ const r=await fetch(`/api/respostas/${atualR.id}/recorrigir`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}); const j=await r.json(); if(r.ok){ atualR.correcao=j.correcao; atualR.status=j.correcao.status; renderModal(); } }
+
+// ---------- cartões (OMR)
+let leituras=[];
+function cartoesNomes(){ const ns=$('nomesLista').value.split('\n').map(x=>x.trim()).filter(Boolean); if(!ns.length){ alert('Digite os nomes.'); return; } window.open(`/api/aplicacoes/${AP}/cartoes?nomes=${encodeURIComponent(ns.join('|'))}`,'_blank'); }
+async function lerFotos(files){
+  if(!files.length) return; const arr=[...files]; leituras=[]; $('leituras').innerHTML=''; $('leiturasBarra').style.display='none';
+  $('leituraProg').className='msg ok'; 
+  for(let i=0;i<arr.length;i+=4){
+    $('leituraProg').textContent=`Lendo cartões… ${Math.min(i+4,arr.length)} de ${arr.length}`;
+    const fd=new FormData(); arr.slice(i,i+4).forEach(f=>fd.append('fotos',f));
+    const r=await fetch(`/api/aplicacoes/${AP}/ler-cartao`,{method:'POST',body:fd}); const j=await r.json();
+    if(!r.ok){ $('leituraProg').className='msg err'; $('leituraProg').textContent=j.erro||'Erro ao ler'; break; }
+    j.leituras.forEach(l=>{ l.nome=''; leituras.push(l); });
+  }
+  const ok=leituras.filter(l=>!l.erro).length;
+  $('leituraProg').textContent=`✔ ${ok} cartão(ões) lido(s)`+(leituras.length-ok?` · ${leituras.length-ok} com problema (veja abaixo)`:'')+`. Confira nome e número de cada um.`;
+  renderLeituras(); $('fotos').value='';
+}
+function renderLeituras(){
+  const idxMe=dados.questoes.map((q,i)=>q.tipo==='me'?i:null).filter(x=>x!==null);
+  $('leituras').innerHTML=leituras.map((l,n)=> l.erro ? `<div class="leit erro"><div style="font-size:12px;color:var(--muted)">${esc(l.arquivo||'')}</div><div style="color:var(--verm)">✗ ${esc(l.erro)}</div></div>` : `<div class="leit">
+    <img class="mini" src="data:image/jpeg;base64,${l.miniatura}" onclick="$('zoomImg').src=this.src;$('zoom').style.display='flex'" title="clique para ampliar">
+    <div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <img class="nome" src="data:image/png;base64,${l.recorte_nome}" alt="">
+        <input placeholder="digite o nome do aluno" value="${esc(l.nome)}" oninput="leituras[${n}].nome=this.value" style="min-width:220px">
+        <span style="font-size:13px">Nº <input value="${esc(l.numero)}" oninput="leituras[${n}].numero=this.value" style="width:56px;${l.numero_duvida||!l.numero?'border-color:var(--verm);background:#fdecea':''}"></span>
+        <span style="font-size:12px;color:var(--muted)">${l.duvidas.length?`<span style="color:var(--verm)">${l.duvidas.length} questão(ões) em dúvida</span>`:'sem dúvidas'}</span>
+      </div>
+      <div class="letras">${[...l.letras].map((L,p)=>{const d=l.duvidas.find(x=>x.pos===p);return `<div class="l ${d?'dv':''}"><small>Q${idxMe[p]+1}</small><select onchange="setLetra(${n},${p},this.value)" title="${d?(d.motivo==='dupla'?'duas marcações':'marca fraca'):''}">${['-','A','B','C','D','E'].map(o=>`<option ${o===L?'selected':''}>${o}</option>`).join('')}</select></div>`}).join('')}</div>
+    </div></div>`).join('');
+  $('leiturasBarra').style.display=leituras.some(l=>!l.erro)?'flex':'none';
+}
+function setLetra(n,p,v){ const a=[...leituras[n].letras]; a[p]=v; leituras[n].letras=a.join(''); }
+async function lancarLeituras(){
+  const prontos=leituras.filter(l=>!l.erro && (l.nome||'').trim().length>=2);
+  const semNome=leituras.filter(l=>!l.erro && (l.nome||'').trim().length<2).length;
+  if(!prontos.length){ alert('Digite o nome dos alunos (olhe o recorte do campo NOME ao lado).'); return; }
+  if(semNome && !confirm(`${semNome} cartão(ões) sem nome serão ignorados. Continuar com ${prontos.length}?`)) return;
+  const alunos=prontos.map(l=>({numero:l.numero.replace('?',''),nome:l.nome.trim(),me:l.letras}));
+  $('btnLancarLeit').disabled=true;
+  const r=await fetch(`/api/aplicacoes/${AP}/lancar`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({alunos})}); const j=await r.json(); $('btnLancarLeit').disabled=false;
+  if(!r.ok){ alert(j.erro||'Erro'); return; }
+  $('leituraProg').className='msg ok'; $('leituraProg').textContent=`✔ ${j.feitos} aluno(s) lançado(s) e corrigido(s).`; leituras=[]; renderLeituras(); carregar();
+}
 
 // ---------- papel
 async function lancar(){
