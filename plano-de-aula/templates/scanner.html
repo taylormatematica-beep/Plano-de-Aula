@@ -43,7 +43,7 @@
 <div class="ok-flash" id="flash"></div>
 <div class="top"><a href="/correcao/{{ ap.id }}">‹ Sair</a><div class="t">{{ item.conteudo.titulo }}</div><span class="cont" id="cont">0 lidos</span></div>
 <div class="hist" id="hist"></div>
-<div class="dica" id="dica">Aponte para o cartão inteiro<small>Os 4 quadrados pretos precisam aparecer. Segure firme — a leitura é automática.</small></div>
+<div class="dica" id="dica">Aponte para o cartão inteiro<small>Os 4 quadrados pretos precisam aparecer. Quando ficarem verdes, segure firme.</small></div>
 
 <div class="sheet" id="sheet">
   <h2 id="shTit">Cartão lido</h2>
@@ -64,58 +64,52 @@
 const AP={{ ap.id }}, N_ME={{ n_me }}, N_DISC={{ n_disc }};
 const $=id=>document.getElementById(id);
 const video=$('cam'), ov=$('ov'), ctx=ov.getContext('2d');
-let stream=null, rodando=false, ocupado=false, leitura=null, lidos=0, hist=[], ultimoHash='', quietos=0, pausadoAte=0;
+let stream=null, rodando=false, ocupado=false, leitura=null, lidos=0, hist=[], ultimoHash='', pausadoAte=0, prevHash='', cantos=null, cantosAte=0, falhas=0;
 function esc(t){return String(t??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function fv(v){ return v==null?'—':(Math.round(v*100)/100).toString().replace('.',','); }
 function vibrar(p){ try{ navigator.vibrate && navigator.vibrate(p); }catch(e){} }
+function dica(t,sub){ $('dica').firstChild.textContent=t; if(sub!==undefined) $('dica').querySelector('small').textContent=sub; }
 
 async function ligar(){
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){ $('bloqTxt').textContent='Este navegador não dá acesso à câmera. Abra o link no Chrome (Android) ou Safari (iPhone), pelo endereço https.'; return; }
   try{
     stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});
-  }catch(e){ $('bloqTxt').textContent='Não foi possível acessar a câmera ('+e.name+'). Verifique a permissão do navegador (cadeado na barra de endereço) e tente de novo.'; return; }
+  }catch(e){ $('bloqTxt').textContent='Não foi possível acessar a câmera ('+e.name+'). Toque no cadeado na barra de endereço, permita a câmera e tente de novo.'; return; }
   video.srcObject=stream; await video.play();
-  // foco contínuo quando disponível
   try{ const tr=stream.getVideoTracks()[0]; const caps=tr.getCapabilities?tr.getCapabilities():{}; if(caps.focusMode&&caps.focusMode.includes('continuous')) await tr.applyConstraints({advanced:[{focusMode:'continuous'}]}); }catch(e){}
-  $('bloq').style.display='none'; rodando=true; loop();
+  $('bloq').style.display='none'; rodando=true; loop(); requestAnimationFrame(desenhar);
 }
 function capturar(){
   const w=video.videoWidth, h=video.videoHeight; if(!w) return null;
-  const esc_=Math.min(1,1400/Math.max(w,h)); const c=document.createElement('canvas'); c.width=Math.round(w*esc_); c.height=Math.round(h*esc_);
+  const f=Math.min(1,1600/Math.max(w,h)); const c=document.createElement('canvas'); c.width=Math.round(w*f); c.height=Math.round(h*f);
   c.getContext('2d').drawImage(video,0,0,c.width,c.height);
-  return new Promise(r=>c.toBlob(r,'image/jpeg',0.8));
+  return new Promise(r=>c.toBlob(r,'image/jpeg',0.82));
 }
-// detecção prévia no próprio celular: só manda ao servidor quando há 4 quadrados escuros nos cantos (economiza rede)
-function preCheck(){
-  const w=video.videoWidth,h=video.videoHeight; if(!w) return false;
-  const c=document.createElement('canvas'); c.width=160; c.height=Math.round(160*h/w); const g=c.getContext('2d'); g.drawImage(video,0,0,c.width,c.height);
-  const d=g.getImageData(0,0,c.width,c.height).data; const W=c.width,H=c.height;
-  // procura pixels escuros em cada quadrante externo (faixa de 30% das bordas)
-  let cantos=[0,0,0,0]; let claros=0;
-  for(let y=0;y<H;y+=2) for(let x=0;x<W;x+=2){ const i=(y*W+x)*4; const lum=(d[i]*0.3+d[i+1]*0.59+d[i+2]*0.11); if(lum>150) claros++;
-    if(lum<60){ const ex=x<W*0.3||x>W*0.7, ey=y<H*0.3||y>H*0.7; if(ex&&ey){ cantos[(x>W/2?1:0)+(y>H/2?2:0)]++; } } }
-  const tot=(W/2)*(H/2); return cantos.every(c=>c>=2) && claros>tot*0.9;  // tem escuro nos 4 cantos e a cena é majoritariamente clara (papel)
-}
+// Envia um quadro ao servidor a cada ~0,7 s (o servidor faz a detecção de verdade; o celular só mostra o resultado).
 async function loop(){
   if(!rodando) return;
-  const agora=Date.now();
-  if(!ocupado && !leitura && agora>pausadoAte){
-    if(preCheck()){
-      quietos++; $('prog').style.width=Math.min(100,quietos*34)+'%';
-      if(quietos>=3){ ocupado=true; await tentarLer(); ocupado=false; quietos=0; $('prog').style.width='0'; }
-    } else { quietos=0; $('prog').style.width='0'; }
+  if(!ocupado && !leitura && Date.now()>pausadoAte){
+    ocupado=true; try{ await tentarLer(); }catch(e){} ocupado=false;
   }
-  setTimeout(loop, 250);
+  setTimeout(loop, 700);
 }
 async function tentarLer(){
   const blob=await capturar(); if(!blob) return;
   const fd=new FormData(); fd.append('fotos',blob,'cam.jpg');
-  let j; try{ const r=await fetch(`/api/aplicacoes/${AP}/ler-cartao`,{method:'POST',body:fd}); j=await r.json(); }catch(e){ return; }
-  const l=j.leituras&&j.leituras[0]; if(!l||l.erro){ $('dica').firstChild.textContent = l&&l.erro ? 'Ajuste o enquadramento' : 'Aponte para o cartão inteiro'; return; }
+  let j; try{ const r=await fetch(`/api/aplicacoes/${AP}/ler-cartao`,{method:'POST',body:fd}); j=await r.json(); }catch(e){ dica('Sem conexão… tentando de novo'); return; }
+  const l=j.leituras&&j.leituras[0];
+  if(!l||l.erro){
+    cantos=null; prevHash=''; falhas++;
+    if(l&&l.codigo==='orientacao') dica('Achei os cantos — aproxime um pouco e segure firme','A leitura precisa ver as bolhas com nitidez.');
+    else if(falhas>6) dica('Não estou vendo os 4 quadrados pretos','Afaste até o cartão inteiro caber na tela. Evite sombra sobre o papel e mesa muito clara colada ao cartão.');
+    else dica('Aponte para o cartão inteiro','Os 4 quadrados pretos precisam aparecer.');
+    return;
+  }
+  falhas=0; cantos=l.cantos; cantosAte=Date.now()+1200;
   const hash=l.numero+'|'+l.letras;
-  if(hash===ultimoHash && Date.now()<pausadoAte+15000){ return; }   // mesmo cartão recém-lido: ignora
-  // exige 2 leituras iguais seguidas para estabilidade
-  if(tentarLer.prev!==hash){ tentarLer.prev=hash; $('dica').firstChild.textContent='Segure… confirmando leitura'; return; }
-  tentarLer.prev=''; ultimoHash=hash; leitura=l; vibrar([60,40,60]); flash(); mostrar();
+  if(hash===ultimoHash && Date.now()<pausadoAte+15000){ dica('Este cartão já foi lido','Passe para o próximo.'); return; }
+  if(prevHash!==hash){ prevHash=hash; dica('Cartão encontrado — segure…','Confirmando a leitura.'); $('prog').style.width='50%'; return; }
+  prevHash=''; ultimoHash=hash; leitura=l; $('prog').style.width='100%'; vibrar([60,40,60]); flash(); mostrar(); setTimeout(()=>$('prog').style.width='0',400);
 }
 function flash(){ $('flash').style.opacity=1; setTimeout(()=>$('flash').style.opacity=0,250); }
 function mostrar(){
@@ -128,7 +122,7 @@ function mostrar(){
   $('sheet').classList.add('on'); setTimeout(()=>$('shNomeIn').focus(),300);
 }
 function setL(p,v){ const a=[...leitura.letras]; a[p]=v; leitura.letras=a.join(''); }
-function descartar(){ leitura=null; ultimoHash=''; $('sheet').classList.remove('on'); pausadoAte=Date.now()+800; }
+function descartar(){ leitura=null; ultimoHash=''; prevHash=''; $('sheet').classList.remove('on'); pausadoAte=Date.now()+800; dica('Aponte para o cartão inteiro','Os 4 quadrados pretos precisam aparecer.'); }
 async function confirmar(){
   const nome=$('shNomeIn').value.trim(); if(nome.length<2){ $('shNomeIn').focus(); $('shNomeIn').style.borderColor='var(--verm)'; return; }
   $('btnConf').disabled=true; $('btnConf').textContent='Corrigindo…';
@@ -141,12 +135,31 @@ async function confirmar(){
   $('shNota').textContent=fv(res.nota); $('shAcertos').textContent=`${res.acertos} de ${res.total_me} acertos`+(N_DISC?` · discursivas: lance depois no computador`:'')+(res.atualizado?' · (substituiu lançamento anterior)':'');
   vibrar(120);
 }
-function proximo(){ leitura=null; $('sheet').classList.remove('on'); $('dica').firstChild.textContent='Aponte para o próximo cartão'; pausadoAte=Date.now()+1200; }
-// overlay: guia de enquadramento
-function desenharGuia(){ ov.width=innerWidth; ov.height=innerHeight; ctx.clearRect(0,0,ov.width,ov.height); ctx.strokeStyle='rgba(255,255,255,.8)'; ctx.lineWidth=3; const m=Math.min(ov.width,ov.height)*0.06, w=ov.width-2*m, h=ov.height-2*m-120; const x=m,y=m+60; const L=28;
-  [[x,y,1,1],[x+w,y,-1,1],[x,y+h,1,-1],[x+w,y+h,-1,-1]].forEach(([cx,cy,sx,sy])=>{ ctx.beginPath(); ctx.moveTo(cx,cy+sy*L); ctx.lineTo(cx,cy); ctx.lineTo(cx+sx*L,cy); ctx.stroke(); }); }
-addEventListener('resize',desenharGuia); desenharGuia();
-document.addEventListener('visibilitychange',()=>{ rodando=!document.hidden && !!stream; if(rodando) loop(); });
+function proximo(){ leitura=null; prevHash=''; $('sheet').classList.remove('on'); dica('Aponte para o próximo cartão','Os 4 quadrados pretos precisam aparecer.'); pausadoAte=Date.now()+1200; }
+// Overlay: converte coordenadas do vídeo (object-fit: cover) para a tela e desenha os cantos encontrados.
+function mapa(){
+  const vw=video.videoWidth||16, vh=video.videoHeight||9, W=innerWidth, H=innerHeight; const s=Math.max(W/vw,H/vh);
+  return {s, ox:(W-vw*s)/2, oy:(H-vh*s)/2, vw, vh};
+}
+function desenhar(){
+  if(!rodando) return;
+  ov.width=innerWidth; ov.height=innerHeight; ctx.clearRect(0,0,ov.width,ov.height);
+  const m=mapa();
+  if(cantos && Date.now()<cantosAte){
+    const P=cantos.map(([x,y])=>[m.ox+x*m.vw*m.s, m.oy+y*m.vh*m.s]);
+    ctx.strokeStyle='#22c55e'; ctx.lineWidth=4; ctx.beginPath(); ctx.moveTo(...P[0]); ctx.lineTo(...P[1]); ctx.lineTo(...P[3]); ctx.lineTo(...P[2]); ctx.closePath(); ctx.stroke();
+    ctx.fillStyle='#22c55e'; P.forEach(([x,y])=>{ ctx.beginPath(); ctx.arc(x,y,12,0,7); ctx.fill(); });
+  } else {
+    // guia: retângulo na proporção A4, centralizado
+    ctx.strokeStyle='rgba(255,255,255,.85)'; ctx.lineWidth=3;
+    const W=ov.width,H=ov.height; let gh=H*0.78, gw=gh*210/297; if(gw>W*0.9){ gw=W*0.9; gh=gw*297/210; }
+    if(W>H){ gw=W*0.78; gh=gw*210/297; if(gh>H*0.8){ gh=H*0.8; gw=gh*297/210; } }
+    const x=(W-gw)/2,y=(H-gh)/2,L=34;
+    [[x,y,1,1],[x+gw,y,-1,1],[x,y+gh,1,-1],[x+gw,y+gh,-1,-1]].forEach(([cx,cy,sx,sy])=>{ ctx.beginPath(); ctx.moveTo(cx,cy+sy*L); ctx.lineTo(cx,cy); ctx.lineTo(cx+sx*L,cy); ctx.stroke(); });
+  }
+  requestAnimationFrame(desenhar);
+}
+document.addEventListener('visibilitychange',()=>{ const antes=rodando; rodando=!document.hidden && !!stream; if(rodando&&!antes){ loop(); requestAnimationFrame(desenhar); } });
 </script>
 </body>
 </html>
