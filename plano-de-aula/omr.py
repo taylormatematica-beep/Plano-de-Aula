@@ -48,6 +48,22 @@ def posicoes_numero() -> list[list[tuple[float, float]]]:
 
 
 # ------------------------------------------------------------------ PDF
+def _texto_ajustado(c, texto, x, y, largura_max, fonte, tam, tam_min):
+    """Escreve `texto` cabendo em `largura_max`: reduz a fonte até tam_min e, se ainda não couber, corta com reticências."""
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+    texto = str(texto or "")
+    t = tam
+    while t > tam_min and stringWidth(texto, fonte, t) > largura_max:
+        t -= 0.5
+    while texto and stringWidth(texto + "…", fonte, t) > largura_max:
+        texto = texto[:-1]
+        if stringWidth(texto, fonte, t) <= largura_max and len(texto) >= 3:
+            texto = texto.rstrip() + "…"
+            break
+    c.setFont(fonte, t)
+    c.drawString(x, y, texto)
+
+
 def gerar_cartao_pdf(titulo: str, subtitulo: str, codigo: str, n_me: int, copias: int = 1,
                      nomes: list[str] | None = None, logo_path=None) -> bytes:
     """Um cartão por página. Se `nomes` for informado, gera um cartão pré-preenchido por nome (ignora `copias`)."""
@@ -80,10 +96,9 @@ def gerar_cartao_pdf(titulo: str, subtitulo: str, codigo: str, n_me: int, copias
                 c.drawImage(str(logo_path), X(150), Y(29), width=40 * mm, height=11 * mm, preserveAspectRatio=True, mask="auto", anchor="ne")
             except Exception:  # noqa: BLE001
                 pass
-        c.setFont("Helvetica-Bold", 11)
-        c.drawString(X(45), Y(21), (f"CARTÃO-RESPOSTA — {titulo}")[:60])
-        c.setFont("Helvetica", 8.5)
-        c.drawString(X(45), Y(26), (f"{subtitulo} · código {codigo} · Q1–Q{n_me}")[:100])
+        # texto do cabeçalho cabe entre 45 mm e 147 mm (o logo ocupa 150–190 mm)
+        _texto_ajustado(c, f"CARTÃO-RESPOSTA — {titulo}", X(45), Y(21), 102 * mm, "Helvetica-Bold", 11, 8)
+        _texto_ajustado(c, f"{subtitulo} · código {codigo} · Q1–Q{n_me}", X(45), Y(26), 102 * mm, "Helvetica", 8.5, 6.5)
         # campos nome / número
         for (bx, by, bw, bh), rot in ((NOME_BOX, "NOME:"), (NUM_BOX, "Nº DA CHAMADA:")):
             c.setLineWidth(0.6)
@@ -153,7 +168,9 @@ def gerar_cartao_pdf(titulo: str, subtitulo: str, codigo: str, n_me: int, copias
 
 # ------------------------------------------------------------------ leitura
 class LeituraFalhou(Exception):
-    pass
+    def __init__(self, msg, codigo="cantos"):
+        super().__init__(msg)
+        self.codigo = codigo
 
 
 def _carregar(img_bytes: bytes):
@@ -171,58 +188,91 @@ def _carregar(img_bytes: bytes):
 
 
 def _achar_fiduciais(gray):
-    """Devolve os centros das 4 marcas de canto (quadrados pretos cheios) ou None."""
+    """Devolve lista de candidatos a conjunto de 4 marcas de canto (TL, TR, BL, BR), do mais provável ao menos.
+
+    Robusto a: luz fraca (limiares relativos ao papel), mesa escura em volta, objetos escuros na foto,
+    cartão pequeno no quadro. A confirmação final é feita pelo chamador (marcador de orientação).
+    """
     import cv2
+    from itertools import combinations
     h, w = gray.shape
     blur = cv2.GaussianBlur(gray, (5, 5), 0)
-    thr = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 51, 15)
+    papel = float(np.percentile(blur, 75))            # nível de cinza do papel (o que há de mais claro em quantidade)
+    thr = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 51, 12)
     thr = cv2.morphologyEx(thr, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
     contornos, _ = cv2.findContours(thr, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
     area_img = h * w
     cands = []
     for ct in contornos:
         a = cv2.contourArea(ct)
-        if a < area_img * 0.00015 or a > area_img * 0.01:
+        if a < area_img * 0.00008 or a > area_img * 0.012:
             continue
         x, y, bw, bh = cv2.boundingRect(ct)
-        if bw == 0 or bh == 0:
+        if bw < 6 or bh < 6:
             continue
-        aspecto = bw / bh
-        if not 0.6 < aspecto < 1.6:
+        if not 0.55 < bw / bh < 1.8:
             continue
-        preench = a / (bw * bh)
-        if preench < 0.7:
+        if a / (bw * bh) < 0.65:
             continue
-        # tem que ser realmente escuro por dentro
-        roi = gray[y:y + bh, x:x + bw]
-        if roi.mean() > 110:
+        roi = blur[y:y + bh, x:x + bw]
+        # centro realmente escuro em relação ao papel (e não um cinza médio)
+        cy0, cy1 = y + bh // 4, y + max(bh // 4 + 1, 3 * bh // 4)
+        cx0, cx1 = x + bw // 4, x + max(bw // 4 + 1, 3 * bw // 4)
+        miolo = blur[cy0:cy1, cx0:cx1]
+        if miolo.size == 0 or miolo.mean() > papel * 0.6 or roi.mean() > papel * 0.75:
             continue
         cands.append((x + bw / 2, y + bh / 2, a))
     if len(cands) < 4:
-        return None
-    # escolhe, para cada canto da imagem, o candidato mais próximo (entre os maiores)
+        return []
     cands.sort(key=lambda c: -c[2])
-    cands = cands[:40]
-    cantos = [(0, 0), (w, 0), (0, h), (w, h)]
-    esc = []
-    usados = set()
-    for cx, cy in cantos:
-        melhor = None
-        for i, (x, y, a) in enumerate(cands):
-            if i in usados:
-                continue
-            d = (x - cx) ** 2 + (y - cy) ** 2
-            if melhor is None or d < melhor[0]:
-                melhor = (d, i)
-        if melhor is None:
-            return None
-        usados.add(melhor[1])
-        esc.append(cands[melhor[1]][:2])
-    # sanidade: quadrilátero grande
-    xs = [p[0] for p in esc]; ys = [p[1] for p in esc]
-    if (max(xs) - min(xs)) < w * 0.4 or (max(ys) - min(ys)) < h * 0.4:
-        return None
-    return np.array(esc, dtype=np.float32)   # TL, TR, BL, BR
+    cands = cands[:22]
+    conjuntos = []
+    for combo in combinations(range(len(cands)), 4):
+        pts = [cands[i] for i in combo]
+        areas = [p[2] for p in pts]
+        if max(areas) > 3.2 * min(areas):
+            continue
+        # ordena TL, TR, BL, BR pela soma/diferença das coordenadas
+        P = np.array([[p[0], p[1]] for p in pts], dtype=np.float32)
+        soma = P.sum(1); dif = P[:, 0] - P[:, 1]
+        tl, br = P[int(np.argmin(soma))], P[int(np.argmax(soma))]
+        tr, bl = P[int(np.argmax(dif))], P[int(np.argmin(dif))]
+        quad = np.array([tl, tr, bl, br], dtype=np.float32)
+        if len({tuple(q) for q in quad}) < 4:
+            continue
+        larg = (np.linalg.norm(tr - tl) + np.linalg.norm(br - bl)) / 2
+        alt = (np.linalg.norm(bl - tl) + np.linalg.norm(br - tr)) / 2
+        if larg < 8 * np.sqrt(max(areas)) or alt < 8 * np.sqrt(max(areas)):
+            continue                                        # quadrilátero pequeno demais para ser o cartão
+        razao = larg / alt
+        # proporção do retângulo das marcas: 180 x 267 mm (0,67) ou deitado (1,48); tolerância por perspectiva
+        if not (0.42 < razao < 1.05 or 0.95 < razao < 2.4):
+            continue
+        # convexo (área do polígono ≈ soma dos triângulos)
+        poly = np.array([tl, tr, br, bl], dtype=np.float32)
+        area_q = abs(cv2.contourArea(poly))
+        if area_q < area_img * 0.05:
+            continue
+        # lados opostos parecidos (perspectiva moderada)
+        l1, l2 = np.linalg.norm(tr - tl), np.linalg.norm(br - bl)
+        l3, l4 = np.linalg.norm(bl - tl), np.linalg.norm(br - tr)
+        if max(l1, l2) > 1.8 * min(l1, l2) or max(l3, l4) > 1.8 * min(l3, l4):
+            continue
+        # quadrados de tamanho coerente com o tamanho do cartão (8 mm em 180 mm)
+        lado_esp = larg / 180 * FID if razao < 1 else larg / 267 * FID
+        lado_med = np.sqrt(np.mean(areas))
+        if not 0.45 < lado_med / lado_esp < 2.2:
+            continue
+        # interior majoritariamente claro (é papel)
+        mask = np.zeros((h, w), np.uint8)
+        cv2.fillConvexPoly(mask, poly.astype(np.int32), 255)
+        interior = blur[mask > 0]
+        if interior.size and (interior > papel * 0.6).mean() < 0.6:
+            continue
+        pontos = 1.0 * area_q / area_img - 0.15 * abs(np.log(max(areas) / min(areas)))
+        conjuntos.append((pontos, quad))
+    conjuntos.sort(key=lambda c: -c[0])
+    return [c[1] for c in conjuntos[:6]]
 
 
 def _normalizar(gray, pts):
@@ -276,22 +326,26 @@ def ler_cartao(img_bytes: bytes, n_me: int) -> dict:
     import cv2
     img = _carregar(img_bytes)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    pts = _achar_fiduciais(gray)
-    if pts is None:
+    conjuntos = _achar_fiduciais(gray)
+    if not conjuntos:
         raise LeituraFalhou("Não encontrei os 4 quadrados pretos dos cantos. Fotografe o cartão inteiro, de frente, "
                             "com boa luz e sem cortar as bordas.")
-    # tenta as 4 orientações (foto de cabeça para baixo / deitada)
+    # tenta cada conjunto candidato nas 4 orientações (foto de cabeça para baixo / deitada)
     ordens = [(0, 1, 2, 3), (3, 2, 1, 0), (1, 3, 0, 2), (2, 0, 3, 1)]
     norm = binimg = None
-    for o in ordens:
-        cand = _normalizar(gray, pts[list(o)])
-        b = _binarizar(cand)
-        if _orientacao_ok(b):
-            norm, binimg = cand, b
+    cantos_ok = None
+    for pts in conjuntos:
+        for o in ordens:
+            cand = _normalizar(gray, pts[list(o)])
+            b = _binarizar(cand)
+            if _orientacao_ok(b):
+                norm, binimg, cantos_ok = cand, b, pts
+                break
+        if norm is not None:
             break
     if norm is None:
         raise LeituraFalhou("Encontrei os cantos, mas não consegui confirmar a orientação do cartão. "
-                            "Tente uma foto mais nítida e de frente.")
+                            "Tente uma foto mais nítida e de frente.", "orientacao")
     # número da chamada
     numero = ""
     num_duvida = False
@@ -332,6 +386,8 @@ def ler_cartao(img_bytes: bytes, n_me: int) -> dict:
     vis = cv2.resize(vis, (int(PAG_W * 2), int(PAG_H * 2)), interpolation=cv2.INTER_AREA)
     ok, jpg = cv2.imencode(".jpg", vis, [cv2.IMWRITE_JPEG_QUALITY, 70])
     miniatura = base64.b64encode(jpg.tobytes()).decode() if ok else ""
-    return {"numero": numero, "numero_duvida": num_duvida, "respostas": respostas, "duvidas": duvidas,
+    hh, ww = gray.shape
+    cantos = [[round(float(x) / ww, 4), round(float(y) / hh, 4)] for x, y in cantos_ok]
+    return {"cantos": cantos, "numero": numero, "numero_duvida": num_duvida, "respostas": respostas, "duvidas": duvidas,
             "letras": "".join(LETRAS[respostas[p]] if p in respostas else "-" for p in range(n_me)),
             "recorte_nome": recorte, "miniatura": miniatura}

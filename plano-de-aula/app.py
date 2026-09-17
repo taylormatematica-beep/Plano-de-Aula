@@ -1519,11 +1519,12 @@ def api_aplicacao_ler_cartao(ap_id):
         try:
             r = omr.ler_cartao(dados, len(idx_me))
         except omr.LeituraFalhou as e:
-            saida.append({"arquivo": f.filename, "erro": str(e)}); continue
+            saida.append({"arquivo": f.filename, "erro": str(e), "codigo": e.codigo}); continue
         except Exception as e:  # noqa: BLE001
             saida.append({"arquivo": f.filename, "erro": f"Falha ao processar a foto ({type(e).__name__})."}); continue
         saida.append({"arquivo": f.filename, "numero": r["numero"], "numero_duvida": r["numero_duvida"],
-                      "letras": r["letras"], "duvidas": r["duvidas"], "recorte_nome": r["recorte_nome"], "miniatura": r["miniatura"]})
+                      "letras": r["letras"], "duvidas": r["duvidas"], "recorte_nome": r["recorte_nome"], "miniatura": r["miniatura"],
+                      "cantos": r.get("cantos")})
     return jsonify({"leituras": saida, "n_me": len(idx_me)})
 
 
