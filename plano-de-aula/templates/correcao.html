@@ -97,8 +97,11 @@
         <span style="font-size:13px">cópias: <input type="number" id="nCopias" value="40" min="1" max="60" style="width:64px" oninput="$('lnkCartoes').href='/api/aplicacoes/{{ ap.id }}/cartoes?copias='+this.value"></span>
         <button class="acao" onclick="$('boxNomes').style.display=$('boxNomes').style.display==='none'?'':'none'">…ou com nomes pré-impressos</button>
         <span style="flex:1"></span>
-        <label class="acao pri" style="cursor:pointer">📷 Enviar fotos dos cartões <input type="file" id="fotos" accept="image/*" multiple capture="environment" style="display:none" onchange="lerFotos(this.files)"></label>
+        <a class="acao pri" href="/scanner/{{ ap.id }}" title="Abra no celular: a câmera lê os cartões ao vivo, sem tirar foto">📱 Corrigir no celular (câmera ao vivo)</a>
+        <label class="acao" style="cursor:pointer">🖼 Enviar fotos <input type="file" id="fotos" accept="image/*" multiple capture="environment" style="display:none" onchange="lerFotos(this.files)"></label>
       </div>
+      <details style="margin-bottom:12px;font-size:13px"><summary style="cursor:pointer;color:var(--azul)">Está no computador? Leia este QR com o celular para abrir o scanner</summary>
+        <div style="display:flex;gap:14px;align-items:center;margin-top:8px"><img id="qrScanner" style="width:140px;height:140px;border:1px solid var(--borda);border-radius:8px" alt="QR"><div>O celular precisa estar <b>logado com a sua conta</b> (mesmo e-mail e senha). Abra o link, entre, e a câmera liga.<br><span class="lnk" id="lnkScanner"></span></div></div></details>
       <div id="boxNomes" style="display:none;margin-bottom:12px"><textarea id="nomesLista" style="width:100%;min-height:70px" placeholder="Um nome por linha (na ordem da chamada). Sai um cartão por aluno, já com o nome escrito."></textarea><button class="acao az" style="margin-top:6px" onclick="cartoesNomes()">🖨 Gerar cartões com nomes</button></div>
       <div id="leituraProg" class="msg"></div>
       <div id="leituras"></div>
@@ -235,6 +238,7 @@ async function lancar(){
   if(r.ok){ $('papel').value=''; carregar(); }
 }
 carregar();
+(function(){ const u=location.origin+'/scanner/'+AP; $('lnkScanner').textContent=u; $('qrScanner').src='/api/qr?u='+encodeURIComponent(u); })();
 </script>
 </body>
 </html>

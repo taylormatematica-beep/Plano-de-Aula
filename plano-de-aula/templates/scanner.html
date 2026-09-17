@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Corrigir no celular — {{ item.conteudo.titulo }}</title>
+<style>
+  :root{--verm:#e10600;--verde:#186a30;--azul:#1F4E79;--borda:#d9d9de;--muted:#6b6b76}
+  *{box-sizing:border-box}html,body{margin:0;height:100%;font-family:"Segoe UI",Roboto,Arial,sans-serif;background:#000;color:#fff;overscroll-behavior:none}
+  #cam{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
+  #ov{position:fixed;inset:0;width:100%;height:100%;pointer-events:none}
+  .top{position:fixed;top:0;left:0;right:0;padding:10px 12px;background:linear-gradient(rgba(0,0,0,.75),transparent);display:flex;align-items:center;gap:8px;font-size:13px;z-index:3}
+  .top a{color:#fff;text-decoration:none;border:1px solid rgba(255,255,255,.5);border-radius:6px;padding:5px 9px}
+  .top .t{flex:1;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cont{background:var(--verde);border-radius:12px;padding:3px 9px;font-weight:700}
+  .dica{position:fixed;left:0;right:0;bottom:0;padding:14px 16px 26px;background:linear-gradient(transparent,rgba(0,0,0,.85));text-align:center;font-size:15px;z-index:3}
+  .dica small{display:block;color:#ccc;font-size:12px;margin-top:4px}
+  .btn{background:var(--verm);color:#fff;border:0;border-radius:12px;padding:14px 18px;font-size:16px;font-weight:700;width:100%;cursor:pointer}
+  .btn.cinza{background:#333}.btn.verde{background:var(--verde)}.btn.az{background:var(--azul)}
+  .btn:disabled{opacity:.5}
+  /* painel de resultado */
+  .sheet{position:fixed;left:0;right:0;bottom:0;background:#fff;color:#222;border-radius:18px 18px 0 0;padding:16px 16px 26px;transform:translateY(105%);transition:transform .25s;z-index:5;max-height:92%;overflow:auto}
+  .sheet.on{transform:none}
+  .sheet h2{margin:0 0 6px;font-size:18px}.sheet .sub{font-size:13px;color:var(--muted);margin:0 0 10px}
+  .sheet input,.sheet select{width:100%;padding:12px;border:1px solid var(--borda);border-radius:10px;font-size:16px;font-family:inherit}
+  .row{display:flex;gap:8px;margin-top:8px}
+  img.nome{width:100%;border:1px solid var(--borda);border-radius:8px;background:#fff;margin-bottom:6px}
+  .letras{display:flex;gap:4px;flex-wrap:wrap;margin:8px 0}.l{width:38px;text-align:center;font-size:11px;color:var(--muted)}.l select{width:38px;padding:6px 0;font-size:14px;text-align:center}.l.dv select{border-color:var(--verm);background:#fdecea}
+  .aviso{background:#fff7e6;color:#7a4b00;border:1px solid #f5d38a;padding:8px 10px;border-radius:8px;font-size:13px;margin:8px 0}
+  .ok-flash{position:fixed;inset:0;background:rgba(24,106,48,.35);z-index:4;pointer-events:none;opacity:0;transition:opacity .2s}
+  .nota{font-size:34px;font-weight:800;color:var(--verde)}
+  .hist{position:fixed;top:48px;right:10px;background:rgba(0,0,0,.6);border-radius:10px;padding:6px 10px;font-size:12px;max-width:52%;z-index:3}
+  .hist div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .prog{position:fixed;top:44px;left:0;height:4px;background:var(--verde);width:0;transition:width .15s;z-index:3}
+  .bloqueio{position:fixed;inset:0;background:#111;display:flex;align-items:center;justify-content:center;flex-direction:column;padding:24px;text-align:center;z-index:9}
+  .bloqueio p{color:#ccc;font-size:14px;max-width:360px}
+  datalist{display:none}
+</style>
+</head>
+<body>
+<video id="cam" autoplay playsinline muted></video>
+<canvas id="ov"></canvas>
+<div class="prog" id="prog"></div>
+<div class="ok-flash" id="flash"></div>
+<div class="top"><a href="/correcao/{{ ap.id }}">‹ Sair</a><div class="t">{{ item.conteudo.titulo }}</div><span class="cont" id="cont">0 lidos</span></div>
+<div class="hist" id="hist"></div>
+<div class="dica" id="dica">Aponte para o cartão inteiro<small>Os 4 quadrados pretos precisam aparecer. Segure firme — a leitura é automática.</small></div>
+
+<div class="sheet" id="sheet">
+  <h2 id="shTit">Cartão lido</h2>
+  <p class="sub" id="shSub"></p>
+  <img class="nome" id="shNome" alt="">
+  <input id="shNomeIn" list="nomes" placeholder="Nome do aluno" autocomplete="off">
+  <datalist id="nomes">{% for n in nomes %}<option value="{{ n }}">{% endfor %}</datalist>
+  <div class="row"><input id="shNum" placeholder="Nº" inputmode="numeric" style="width:90px"><div style="flex:1;font-size:13px;color:var(--muted);align-self:center" id="shInfo"></div></div>
+  <div class="aviso" id="shAviso" style="display:none"></div>
+  <div class="letras" id="shLetras"></div>
+  <div class="row"><button class="btn cinza" onclick="descartar()" style="width:40%">Repetir foto</button><button class="btn verde" id="btnConf" onclick="confirmar()">✔ Confirmar e corrigir</button></div>
+  <div id="shRes" style="display:none;text-align:center;margin-top:10px"><div class="nota" id="shNota"></div><div id="shAcertos" style="color:var(--muted)"></div><button class="btn" style="margin-top:10px" onclick="proximo()">Próximo cartão →</button></div>
+</div>
+
+<div class="bloqueio" id="bloq"><h2>Câmera</h2><p id="bloqTxt">Toque para ligar a câmera. O navegador vai pedir permissão — aceite.</p><button class="btn" onclick="ligar()" style="max-width:300px">📷 Ligar câmera</button><p style="margin-top:20px;font-size:12px">Se a câmera não abrir, use o botão "Enviar fotos" na página de correção.</p></div>
+
+<script>
+const AP={{ ap.id }}, N_ME={{ n_me }}, N_DISC={{ n_disc }};
+const $=id=>document.getElementById(id);
+const video=$('cam'), ov=$('ov'), ctx=ov.getContext('2d');
+let stream=null, rodando=false, ocupado=false, leitura=null, lidos=0, hist=[], ultimoHash='', quietos=0, pausadoAte=0;
+function esc(t){return String(t??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function fv(v){ return v==null?'—':(Math.round(v*100)/100).toString().replace('.',','); }
+function vibrar(p){ try{ navigator.vibrate && navigator.vibrate(p); }catch(e){} }
+
+async function ligar(){
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});
+  }catch(e){ $('bloqTxt').textContent='Não foi possível acessar a câmera ('+e.name+'). Verifique a permissão do navegador (cadeado na barra de endereço) e tente de novo.'; return; }
+  video.srcObject=stream; await video.play();
+  // foco contínuo quando disponível
+  try{ const tr=stream.getVideoTracks()[0]; const caps=tr.getCapabilities?tr.getCapabilities():{}; if(caps.focusMode&&caps.focusMode.includes('continuous')) await tr.applyConstraints({advanced:[{focusMode:'continuous'}]}); }catch(e){}
+  $('bloq').style.display='none'; rodando=true; loop();
+}
+function capturar(){
+  const w=video.videoWidth, h=video.videoHeight; if(!w) return null;
+  const esc_=Math.min(1,1400/Math.max(w,h)); const c=document.createElement('canvas'); c.width=Math.round(w*esc_); c.height=Math.round(h*esc_);
+  c.getContext('2d').drawImage(video,0,0,c.width,c.height);
+  return new Promise(r=>c.toBlob(r,'image/jpeg',0.8));
+}
+// detecção prévia no próprio celular: só manda ao servidor quando há 4 quadrados escuros nos cantos (economiza rede)
+function preCheck(){
+  const w=video.videoWidth,h=video.videoHeight; if(!w) return false;
+  const c=document.createElement('canvas'); c.width=160; c.height=Math.round(160*h/w); const g=c.getContext('2d'); g.drawImage(video,0,0,c.width,c.height);
+  const d=g.getImageData(0,0,c.width,c.height).data; const W=c.width,H=c.height;
+  // procura pixels escuros em cada quadrante externo (faixa de 30% das bordas)
+  let cantos=[0,0,0,0]; let claros=0;
+  for(let y=0;y<H;y+=2) for(let x=0;x<W;x+=2){ const i=(y*W+x)*4; const lum=(d[i]*0.3+d[i+1]*0.59+d[i+2]*0.11); if(lum>150) claros++;
+    if(lum<60){ const ex=x<W*0.3||x>W*0.7, ey=y<H*0.3||y>H*0.7; if(ex&&ey){ cantos[(x>W/2?1:0)+(y>H/2?2:0)]++; } } }
+  const tot=(W/2)*(H/2); return cantos.every(c=>c>=2) && claros>tot*0.9;  // tem escuro nos 4 cantos e a cena é majoritariamente clara (papel)
+}
+async function loop(){
+  if(!rodando) return;
+  const agora=Date.now();
+  if(!ocupado && !leitura && agora>pausadoAte){
+    if(preCheck()){
+      quietos++; $('prog').style.width=Math.min(100,quietos*34)+'%';
+      if(quietos>=3){ ocupado=true; await tentarLer(); ocupado=false; quietos=0; $('prog').style.width='0'; }
+    } else { quietos=0; $('prog').style.width='0'; }
+  }
+  setTimeout(loop, 250);
+}
+async function tentarLer(){
+  const blob=await capturar(); if(!blob) return;
+  const fd=new FormData(); fd.append('fotos',blob,'cam.jpg');
+  let j; try{ const r=await fetch(`/api/aplicacoes/${AP}/ler-cartao`,{method:'POST',body:fd}); j=await r.json(); }catch(e){ return; }
+  const l=j.leituras&&j.leituras[0]; if(!l||l.erro){ $('dica').firstChild.textContent = l&&l.erro ? 'Ajuste o enquadramento' : 'Aponte para o cartão inteiro'; return; }
+  const hash=l.numero+'|'+l.letras;
+  if(hash===ultimoHash && Date.now()<pausadoAte+15000){ return; }   // mesmo cartão recém-lido: ignora
+  // exige 2 leituras iguais seguidas para estabilidade
+  if(tentarLer.prev!==hash){ tentarLer.prev=hash; $('dica').firstChild.textContent='Segure… confirmando leitura'; return; }
+  tentarLer.prev=''; ultimoHash=hash; leitura=l; vibrar([60,40,60]); flash(); mostrar();
+}
+function flash(){ $('flash').style.opacity=1; setTimeout(()=>$('flash').style.opacity=0,250); }
+function mostrar(){
+  const l=leitura; $('shRes').style.display='none'; $('btnConf').style.display=''; $('btnConf').disabled=false;
+  $('shTit').textContent='Cartão lido'; $('shSub').textContent=`${N_ME} questões de múltipla escolha · ${l.duvidas.length?l.duvidas.length+' em dúvida':'sem dúvidas'}`;
+  $('shNome').src='data:image/png;base64,'+l.recorte_nome; $('shNomeIn').value=''; $('shNum').value=l.numero||'';
+  $('shNum').style.borderColor=(l.numero_duvida||!l.numero)?'var(--verm)':''; $('shInfo').textContent=l.numero?`nº lido: ${l.numero}`:'nº não lido — digite';
+  $('shAviso').style.display=l.duvidas.length?'':'none'; $('shAviso').textContent=l.duvidas.length?`Questões em vermelho: ${l.duvidas.map(d=>'Q'+(d.pos+1)+(d.motivo==='dupla'?' (2 marcas)':' (fraca)')).join(', ')}. Ficam em branco, a menos que você escolha a letra.`:'';
+  $('shLetras').innerHTML=[...l.letras].map((L,p)=>{const d=l.duvidas.find(x=>x.pos===p);return `<div class="l ${d?'dv':''}">Q${p+1}<br><select onchange="setL(${p},this.value)">${['-','A','B','C','D','E'].map(o=>`<option ${o===L?'selected':''}>${o}</option>`).join('')}</select></div>`}).join('');
+  $('sheet').classList.add('on'); setTimeout(()=>$('shNomeIn').focus(),300);
+}
+function setL(p,v){ const a=[...leitura.letras]; a[p]=v; leitura.letras=a.join(''); }
+function descartar(){ leitura=null; ultimoHash=''; $('sheet').classList.remove('on'); pausadoAte=Date.now()+800; }
+async function confirmar(){
+  const nome=$('shNomeIn').value.trim(); if(nome.length<2){ $('shNomeIn').focus(); $('shNomeIn').style.borderColor='var(--verm)'; return; }
+  $('btnConf').disabled=true; $('btnConf').textContent='Corrigindo…';
+  const r=await fetch(`/api/aplicacoes/${AP}/lancar`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({alunos:[{numero:$('shNum').value.replace('?',''),nome,me:leitura.letras}]})});
+  const j=await r.json(); $('btnConf').textContent='✔ Confirmar e corrigir';
+  if(!r.ok){ alert(j.erro||'Erro ao lançar'); $('btnConf').disabled=false; return; }
+  const res=(j.resultados||[])[0]||{}; lidos++; $('cont').textContent=`${lidos} lido${lidos>1?'s':''}`;
+  hist.unshift(`${res.numero?res.numero+' · ':''}${nome}: ${fv(res.nota)}`); hist=hist.slice(0,4); $('hist').innerHTML=hist.map(h=>`<div>${esc(h)}</div>`).join('');
+  $('btnConf').style.display='none'; $('shRes').style.display='';
+  $('shNota').textContent=fv(res.nota); $('shAcertos').textContent=`${res.acertos} de ${res.total_me} acertos`+(N_DISC?` · discursivas: lance depois no computador`:'')+(res.atualizado?' · (substituiu lançamento anterior)':'');
+  vibrar(120);
+}
+function proximo(){ leitura=null; $('sheet').classList.remove('on'); $('dica').firstChild.textContent='Aponte para o próximo cartão'; pausadoAte=Date.now()+1200; }
+// overlay: guia de enquadramento
+function desenharGuia(){ ov.width=innerWidth; ov.height=innerHeight; ctx.clearRect(0,0,ov.width,ov.height); ctx.strokeStyle='rgba(255,255,255,.8)'; ctx.lineWidth=3; const m=Math.min(ov.width,ov.height)*0.06, w=ov.width-2*m, h=ov.height-2*m-120; const x=m,y=m+60; const L=28;
+  [[x,y,1,1],[x+w,y,-1,1],[x,y+h,1,-1],[x+w,y+h,-1,-1]].forEach(([cx,cy,sx,sy])=>{ ctx.beginPath(); ctx.moveTo(cx,cy+sy*L); ctx.lineTo(cx,cy); ctx.lineTo(cx+sx*L,cy); ctx.stroke(); }); }
+addEventListener('resize',desenharGuia); desenharGuia();
+document.addEventListener('visibilitychange',()=>{ rodando=!document.hidden && !!stream; if(rodando) loop(); });
+</script>
+</body>
+</html>
