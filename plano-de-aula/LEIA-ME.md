@@ -75,3 +75,20 @@ As provas ficam guardadas e podem ser enviadas ao Drive. A supervisão vê as de
 Velocidade: as questões são pedidas à IA em **lotes de 4, todos ao mesmo tempo** (uma prova de 12 questões leva o tempo de uma de 4).
 Ajustes opcionais no Render: `AI_LOTE_QUESTOES` (questões por lote, padrão 4) e `AI_LOTES_PARALELOS` (lotes simultâneos, padrão 5).
 Cada lote conta como uma requisição na cota da chave — se a cota estourar com frequência, aumente `AI_LOTE_QUESTOES` para 6.
+
+## Correção automática
+Na prova (página **Provas e atividades**), clique em **➕ Gerar código de prova**. Você recebe um código de 6 letras e um QR code.
+- **Online:** alunos acessam `SEU-SITE/prova`, digitam o código, nome e número, e respondem pelo celular. Múltipla escolha é corrigida na hora.
+- **Papel:** aplique a prova impressa e, na página de correção, digite uma linha por aluno: `12; Ana Souza; BCADE`.
+- **Discursivas:** a IA sugere nota e comentário com base na resposta esperada e nos critérios; você confirma ou ajusta.
+Baixe as notas em Excel e o relatório em PDF (média, % por questão, questões mais erradas, por habilidade).
+
+### Prova em papel com leitura por foto (cartão-resposta)
+Na página de correção: **Imprimir cartões** (em branco ou com os nomes dos alunos) → aplique com a prova → tire foto de cada
+cartão com o celular → **Enviar fotos** → confira nome/número e as questões destacadas em vermelho → **Lançar**.
+Dicas para a foto: cartão inteiro, com os 4 quadrados pretos visíveis, de frente, sem sombra forte. Funciona de cabeça para baixo e deitado.
+
+### Corrigir no celular (câmera ao vivo)
+Na página de correção, **📱 Corrigir no celular** (ou leia o QR com o celular). A câmera fica aberta: aponte para o cartão,
+o sistema lê sozinho (vibra ao confirmar), você digita o nome (o campo NOME aparece recortado), confirma e passa para o próximo.
+Requer HTTPS (o Render já é) e permissão de câmera no navegador.

@@ -121,7 +121,7 @@ def healthz():
     base = Path(__file__).parent
     for f in ["auth.py", "email_util.py", "db.py", "drive.py", "gerador.py", "pdf.py", "pdf_atividade.py", "correcao.py", "omr.py",
               "templates/login.html", "templates/index.html", "templates/historico.html",
-              "templates/atividades.html", "templates/correcao.html", "templates/prova_entrar.html", "templates/prova_aluno.html",
+              "templates/atividades.html", "templates/correcao.html", "templates/scanner.html", "templates/prova_entrar.html", "templates/prova_aluno.html",
               "templates/conta.html", "templates/usuarios.html", "static/logo.png"]:
         linhas.append(f"{'OK ' if (base / f).exists() else 'FALTA'}  {f}")
     try:
@@ -1288,7 +1288,7 @@ def api_lancar_papel(ap_id):
     b = request.get_json(force=True) or {}
     qs = item["conteudo"].get("questoes") or []
     idx_me = [i for i, q in enumerate(qs) if q.get("tipo") == "me"]
-    feitos, erros = 0, []
+    feitos, erros, resultados = 0, [], []
     for a in (b.get("alunos") or [])[:80]:
         nome = str(a.get("nome") or "").strip()[:80]
         if len(nome) < 2:
@@ -1321,7 +1321,9 @@ def api_lancar_papel(ap_id):
             corr["status"] = "corrigido"
         db.resposta_corrigir(rid, corr, corr["nota"], corr["nota_me"], corr["nota_disc"], corr["status"])
         feitos += 1
-    return jsonify({"ok": True, "feitos": feitos, "erros": erros})
+        resultados.append({"id": rid, "nome": nome, "numero": numero, "nota": corr["nota"], "acertos": corr["acertos_me"],
+                           "total_me": corr["total_me"], "status": corr["status"], "atualizado": bool(ja)})
+    return jsonify({"ok": True, "feitos": feitos, "erros": erros, "resultados": resultados})
 
 
 @app.route("/api/respostas/<int:rid>/nota", methods=["POST"])
@@ -1523,6 +1525,31 @@ def api_aplicacao_ler_cartao(ap_id):
         saida.append({"arquivo": f.filename, "numero": r["numero"], "numero_duvida": r["numero_duvida"],
                       "letras": r["letras"], "duvidas": r["duvidas"], "recorte_nome": r["recorte_nome"], "miniatura": r["miniatura"]})
     return jsonify({"leituras": saida, "n_me": len(idx_me)})
+
+
+@app.route("/api/qr")
+def api_qr():
+    """QR de uma URL do próprio sistema (só para usuários logados)."""
+    import segno
+    u = request.args.get("u", "")
+    if not u.startswith(_base_url()) and not u.startswith(request.url_root.rstrip("/")):
+        return "url inválida", 400
+    buf = BytesIO()
+    segno.make(u, error="m").save(buf, kind="png", scale=6, border=2)
+    buf.seek(0)
+    return send_file(buf, mimetype="image/png")
+
+
+@app.route("/scanner/<int:ap_id>")
+def scanner_pagina(ap_id):
+    """Correção pelo celular: câmera ao vivo lendo os cartões-resposta."""
+    ap, item, err = _aplicacao_e_dono(ap_id)
+    if err:
+        return redirect(url_for("atividades"))
+    qs = item["conteudo"].get("questoes") or []
+    nomes = sorted({r["aluno_nome"] for r in db.respostas_da_aplicacao(ap_id)})
+    return render_template("scanner.html", ap=ap, item=item, n_me=sum(1 for q in qs if q.get("tipo") == "me"),
+                           n_disc=sum(1 for q in qs if q.get("tipo") == "disc"), nomes=nomes)
 
 
 @app.route("/correcao/<int:ap_id>")
