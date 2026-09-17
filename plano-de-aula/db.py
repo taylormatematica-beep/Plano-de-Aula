@@ -145,6 +145,36 @@ def init():
             drive_link      TEXT,
             drive_em        TEXT
         )""")
+        con.execute(f"""CREATE TABLE IF NOT EXISTS aplicacoes (
+            id              {pk},
+            atividade_id    INTEGER NOT NULL,
+            codigo          TEXT NOT NULL UNIQUE,
+            turma           TEXT,
+            criado_em       TEXT NOT NULL,
+            aberta          INTEGER NOT NULL DEFAULT 1,
+            encerrada_em    TEXT,
+            embaralhar      INTEGER NOT NULL DEFAULT 1,
+            mostrar_nota    INTEGER NOT NULL DEFAULT 0,
+            tempo_min       INTEGER
+        )""")
+        con.execute(f"""CREATE TABLE IF NOT EXISTS respostas (
+            id              {pk},
+            aplicacao_id    INTEGER NOT NULL,
+            aluno_nome      TEXT NOT NULL,
+            aluno_numero    TEXT,
+            origem          TEXT NOT NULL DEFAULT 'online',
+            iniciado_em     TEXT,
+            enviado_em      TEXT,
+            respostas_json  TEXT NOT NULL,
+            correcao_json   TEXT,
+            nota            REAL,
+            nota_me         REAL,
+            nota_disc       REAL,
+            corrigido_em    TEXT,
+            status          TEXT NOT NULL DEFAULT 'pendente'
+        )""")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_resp_aplic ON respostas(aplicacao_id)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_aplic_ativ ON aplicacoes(atividade_id)")
     for col in ("drive_pasta_id",):
         try:
             with conexao() as con:
@@ -578,3 +608,115 @@ def planos_obter_varios(ids: list[int]) -> list[dict]:
         r["dados"] = json.loads(r.pop("dados_json")); r["plano"] = json.loads(r.pop("plano_json"))
         por_id[r["id"]] = r
     return [por_id[i] for i in ids if i in por_id]
+
+
+# ---------- aplicações (prova online / lançamento) e respostas dos alunos
+def aplicacao_criar(atividade_id: int, codigo: str, turma: str = "", embaralhar: bool = True,
+                    mostrar_nota: bool = False, tempo_min: int | None = None) -> int:
+    with conexao() as con:
+        cur = con.execute(_q("""INSERT INTO aplicacoes (atividade_id, codigo, turma, criado_em, embaralhar, mostrar_nota, tempo_min)
+                                VALUES (?,?,?,?,?,?,?) RETURNING id"""),
+                          (atividade_id, codigo, turma, fuso.agora_txt(), 1 if embaralhar else 0, 1 if mostrar_nota else 0, tempo_min))
+        return int(cur.fetchone()[0])
+
+
+def aplicacao_por_codigo(codigo: str) -> dict | None:
+    with conexao() as con:
+        rows = _linhas(con.execute(_q("SELECT * FROM aplicacoes WHERE UPPER(codigo)=UPPER(?)"), (codigo.strip(),)))
+    return rows[0] if rows else None
+
+
+def aplicacao_obter(id_: int) -> dict | None:
+    with conexao() as con:
+        rows = _linhas(con.execute(_q("SELECT * FROM aplicacoes WHERE id=?"), (id_,)))
+    return rows[0] if rows else None
+
+
+def aplicacoes_da_atividade(atividade_id: int) -> list[dict]:
+    with conexao() as con:
+        rows = _linhas(con.execute(_q("""SELECT a.*, 
+                (SELECT COUNT(*) FROM respostas r WHERE r.aplicacao_id=a.id AND r.enviado_em IS NOT NULL) AS n_respostas,
+                (SELECT COUNT(*) FROM respostas r WHERE r.aplicacao_id=a.id AND r.status='corrigido') AS n_corrigidas
+                FROM aplicacoes a WHERE a.atividade_id=? ORDER BY a.id DESC"""), (atividade_id,)))
+    return rows
+
+
+def aplicacao_atualizar(id_: int, **campos):
+    if not campos:
+        return
+    sets = ", ".join(f"{k}=?" for k in campos)
+    with conexao() as con:
+        con.execute(_q(f"UPDATE aplicacoes SET {sets} WHERE id=?"), (*campos.values(), id_))
+
+
+def aplicacao_excluir(id_: int):
+    with conexao() as con:
+        con.execute(_q("DELETE FROM respostas WHERE aplicacao_id=?"), (id_,))
+        con.execute(_q("DELETE FROM aplicacoes WHERE id=?"), (id_,))
+
+
+def resposta_criar(aplicacao_id: int, aluno_nome: str, aluno_numero: str, respostas: dict, origem: str = "online",
+                   enviado: bool = True) -> int:
+    agora = fuso.agora_txt()
+    with conexao() as con:
+        cur = con.execute(_q("""INSERT INTO respostas (aplicacao_id, aluno_nome, aluno_numero, origem, iniciado_em, enviado_em, respostas_json)
+                                VALUES (?,?,?,?,?,?,?) RETURNING id"""),
+                          (aplicacao_id, aluno_nome.strip(), (aluno_numero or "").strip(), origem, agora,
+                           agora if enviado else None, json.dumps(respostas, ensure_ascii=False)))
+        return int(cur.fetchone()[0])
+
+
+def resposta_obter(id_: int) -> dict | None:
+    with conexao() as con:
+        rows = _linhas(con.execute(_q("SELECT * FROM respostas WHERE id=?"), (id_,)))
+    if not rows:
+        return None
+    r = rows[0]
+    r["respostas"] = json.loads(r.pop("respostas_json") or "{}")
+    r["correcao"] = json.loads(r.pop("correcao_json") or "null")
+    return r
+
+
+def respostas_da_aplicacao(aplicacao_id: int) -> list[dict]:
+    with conexao() as con:
+        rows = _linhas(con.execute(_q("SELECT * FROM respostas WHERE aplicacao_id=? ORDER BY aluno_numero, aluno_nome"), (aplicacao_id,)))
+    for r in rows:
+        r["respostas"] = json.loads(r.pop("respostas_json") or "{}")
+        r["correcao"] = json.loads(r.pop("correcao_json") or "null")
+    return rows
+
+
+def resposta_ja_enviada(aplicacao_id: int, aluno_nome: str, aluno_numero: str) -> dict | None:
+    """Evita envio duplicado do mesmo aluno na mesma aplicação (mesmo número ou mesmo nome)."""
+    with conexao() as con:
+        rows = _linhas(con.execute(_q("""SELECT id, aluno_nome, aluno_numero, enviado_em FROM respostas
+                                          WHERE aplicacao_id=? AND enviado_em IS NOT NULL AND
+                                          ((aluno_numero<>'' AND aluno_numero=?) OR LOWER(aluno_nome)=LOWER(?))"""),
+                                      (aplicacao_id, (aluno_numero or "").strip(), aluno_nome.strip())))
+    return rows[0] if rows else None
+
+
+def resposta_corrigir(id_: int, correcao: dict, nota: float, nota_me: float, nota_disc: float, status: str):
+    with conexao() as con:
+        con.execute(_q("""UPDATE respostas SET correcao_json=?, nota=?, nota_me=?, nota_disc=?, corrigido_em=?, status=?
+                          WHERE id=?"""),
+                    (json.dumps(correcao, ensure_ascii=False), nota, nota_me, nota_disc, fuso.agora_txt(), status, id_))
+
+
+def resposta_atualizar(id_: int, aluno_nome: str | None = None, aluno_numero: str | None = None, respostas: dict | None = None):
+    campos, vals = [], []
+    if aluno_nome is not None:
+        campos.append("aluno_nome=?"); vals.append(aluno_nome.strip())
+    if aluno_numero is not None:
+        campos.append("aluno_numero=?"); vals.append(aluno_numero.strip())
+    if respostas is not None:
+        campos.append("respostas_json=?"); vals.append(json.dumps(respostas, ensure_ascii=False))
+    if not campos:
+        return
+    with conexao() as con:
+        con.execute(_q(f"UPDATE respostas SET {', '.join(campos)} WHERE id=?"), (*vals, id_))
+
+
+def resposta_excluir(id_: int):
+    with conexao() as con:
+        con.execute(_q("DELETE FROM respostas WHERE id=?"), (id_,))

@@ -16,6 +16,7 @@ from gerador import CONFIG_FILE, carregar_config, gerar_plano
 from pdf import gerar_pdf
 from pdf_atividade import gerar_pdf_atividade, gerar_pdf_gabarito
 from gerador import gerar_atividade, TIPOS_ATIVIDADE, distribuir_valores
+import correcao
 import db
 import drive
 import fuso
@@ -57,7 +58,8 @@ app.config.update(
 from werkzeug.middleware.proxy_fix import ProxyFix  # noqa: E402
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
-ROTAS_PUBLICAS = {"login", "primeiro_acesso", "definir_senha", "static", "sup_login", "healthz"}
+ROTAS_PUBLICAS = {"login", "primeiro_acesso", "definir_senha", "static", "sup_login", "healthz",
+                  "prova_entrar", "prova_aluno", "api_prova_aluno_info", "api_prova_aluno_enviar"}
 
 
 def _base_url() -> str:
@@ -1045,6 +1047,441 @@ def api_atividade_drive(id_):
     except Exception as e:  # noqa: BLE001
         return jsonify({"erro": f"Falha ao enviar ao Drive: {str(e)[:200]}"}), 502
     return jsonify(info)
+
+# ----------------------------------------------------------------------------
+# Correção: aplicações (prova online / lançamento em papel), respostas, relatório
+# ----------------------------------------------------------------------------
+import random as _random  # noqa: E402
+import string as _string  # noqa: E402
+
+_ALFA = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"   # sem 0/O/1/I para não confundir no quadro
+
+
+def _novo_codigo() -> str:
+    for _ in range(20):
+        c = "".join(_random.choice(_ALFA) for _ in range(6))
+        if not db.aplicacao_por_codigo(c):
+            return c
+    return "".join(_random.choice(_ALFA) for _ in range(8))
+
+
+def _atividade_e_dono(id_: int):
+    item = db.atividade_obter(id_)
+    if not item:
+        return None, (jsonify({"erro": "não encontrada"}), 404)
+    if not _pode_ver_atividade(item):
+        return None, (jsonify({"erro": "sem permissão"}), 403)
+    return item, None
+
+
+def _aplicacao_e_dono(ap_id: int):
+    ap = db.aplicacao_obter(ap_id)
+    if not ap:
+        return None, None, (jsonify({"erro": "aplicação não encontrada"}), 404)
+    item, err = _atividade_e_dono(ap["atividade_id"])
+    if err:
+        return None, None, err
+    return ap, item, None
+
+
+@app.route("/api/atividades/<int:id_>/aplicacoes")
+def api_aplicacoes(id_):
+    item, err = _atividade_e_dono(id_)
+    if err:
+        return err
+    aps = db.aplicacoes_da_atividade(id_)
+    for a in aps:
+        a["link"] = f"{_base_url()}/prova/{a['codigo']}"
+    return jsonify(aps)
+
+
+@app.route("/api/atividades/<int:id_>/aplicacoes", methods=["POST"])
+def api_aplicacao_criar(id_):
+    item, err = _atividade_e_dono(id_)
+    if err:
+        return err
+    b = request.get_json(force=True) or {}
+    tempo = b.get("tempo_min")
+    try:
+        tempo = int(tempo) if tempo else None
+    except ValueError:
+        tempo = None
+    ap_id = db.aplicacao_criar(id_, _novo_codigo(), str(b.get("turma") or item["params"].get("serie") or "")[:60],
+                               embaralhar=bool(b.get("embaralhar", True)), mostrar_nota=bool(b.get("mostrar_nota", False)),
+                               tempo_min=tempo)
+    ap = db.aplicacao_obter(ap_id)
+    ap["link"] = f"{_base_url()}/prova/{ap['codigo']}"
+    return jsonify(ap)
+
+
+@app.route("/api/aplicacoes/<int:ap_id>", methods=["PATCH"])
+def api_aplicacao_editar(ap_id):
+    ap, item, err = _aplicacao_e_dono(ap_id)
+    if err:
+        return err
+    b = request.get_json(force=True) or {}
+    campos = {}
+    if "aberta" in b:
+        campos["aberta"] = 1 if b["aberta"] else 0
+        campos["encerrada_em"] = None if b["aberta"] else fuso.agora_txt()
+    for k in ("mostrar_nota", "embaralhar"):
+        if k in b:
+            campos[k] = 1 if b[k] else 0
+    if "turma" in b:
+        campos["turma"] = str(b["turma"])[:60]
+    db.aplicacao_atualizar(ap_id, **campos)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/aplicacoes/<int:ap_id>", methods=["DELETE"])
+def api_aplicacao_excluir(ap_id):
+    ap, item, err = _aplicacao_e_dono(ap_id)
+    if err:
+        return err
+    db.aplicacao_excluir(ap_id)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/aplicacoes/<int:ap_id>/qr")
+def api_aplicacao_qr(ap_id):
+    ap, item, err = _aplicacao_e_dono(ap_id)
+    if err:
+        return err
+    import segno
+    link = f"{_base_url()}/prova/{ap['codigo']}"
+    buf = BytesIO()
+    segno.make(link, error="m").save(buf, kind="png", scale=8, border=2)
+    buf.seek(0)
+    return send_file(buf, mimetype="image/png")
+
+
+@app.route("/api/aplicacoes/<int:ap_id>/folha")
+def api_aplicacao_folha(ap_id):
+    """PDF para projetar/imprimir: título, código, link e QR code."""
+    ap, item, err = _aplicacao_e_dono(ap_id)
+    if err:
+        return err
+    from pdf_atividade import gerar_pdf_folha_acesso
+    link = f"{_base_url()}/prova/{ap['codigo']}"
+    pdf = gerar_pdf_folha_acesso(item["conteudo"].get("titulo", ""), _meta_atividade(item["params"], item["conteudo"]),
+                                 ap["codigo"], link, ap.get("turma") or "")
+    return send_file(BytesIO(pdf), mimetype="application/pdf", as_attachment=True,
+                     download_name=f"acesso-prova-{ap['codigo']}.pdf")
+
+
+def _questoes_para_aluno(item: dict, ap: dict, semente: str) -> list[dict]:
+    """Questões sem gabarito/resolução. Embaralha a ordem das alternativas por aluno (mantendo índice original)."""
+    qs = item["conteudo"].get("questoes") or []
+    rnd = _random.Random(f"{ap['id']}|{semente}")
+    out = []
+    for i, q in enumerate(qs):
+        item_q = {"i": i, "tipo": q.get("tipo"), "enunciado": q.get("enunciado", ""),
+                  "valor": q.get("valor") if item["params"].get("avaliativa") else None}
+        if q.get("tipo") == "me":
+            alts = list(enumerate((q.get("alternativas") or [])[:5]))
+            if ap.get("embaralhar"):
+                rnd.shuffle(alts)
+            item_q["alternativas"] = [{"k": k, "texto": t} for k, t in alts]
+        else:
+            item_q["linhas"] = q.get("linhas", 6)
+        out.append(item_q)
+    return out
+
+
+@app.route("/prova", methods=["GET", "POST"])
+def prova_entrar():
+    """Página pública: aluno digita o código da prova."""
+    erro = ""
+    if request.method == "POST":
+        cod = (request.form.get("codigo") or "").strip().upper().replace(" ", "")
+        ap = db.aplicacao_por_codigo(cod) if cod else None
+        if ap:
+            return redirect(url_for("prova_aluno", codigo=ap["codigo"]))
+        erro = "Código não encontrado. Confira com o professor."
+    return render_template("prova_entrar.html", erro=erro)
+
+
+@app.route("/prova/<codigo>")
+def prova_aluno(codigo):
+    ap = db.aplicacao_por_codigo(codigo)
+    if not ap:
+        return render_template("prova_entrar.html", erro="Código não encontrado. Confira com o professor."), 404
+    item = db.atividade_obter(ap["atividade_id"])
+    return render_template("prova_aluno.html", codigo=ap["codigo"], titulo=item["conteudo"].get("titulo", ""),
+                           disciplina=item["params"].get("disciplina", ""), serie=ap.get("turma") or item["params"].get("serie", ""),
+                           professor=item["params"].get("professor", ""), aberta=bool(ap["aberta"]),
+                           tempo_min=ap.get("tempo_min"), instrucoes=item["conteudo"].get("instrucoes", ""),
+                           avaliativa=bool(item["params"].get("avaliativa")), valor_total=item["params"].get("valor_total"))
+
+
+@app.route("/api/prova/<codigo>/info", methods=["POST"])
+def api_prova_aluno_info(codigo):
+    """Aluno se identifica e recebe as questões (sem gabarito)."""
+    ap = db.aplicacao_por_codigo(codigo)
+    if not ap:
+        return jsonify({"erro": "Código não encontrado."}), 404
+    if not ap["aberta"]:
+        return jsonify({"erro": "Esta prova já foi encerrada pelo professor."}), 403
+    b = request.get_json(force=True) or {}
+    nome = str(b.get("nome") or "").strip()[:80]
+    numero = str(b.get("numero") or "").strip()[:10]
+    if len(nome) < 3:
+        return jsonify({"erro": "Digite seu nome completo."}), 400
+    ja = db.resposta_ja_enviada(ap["id"], nome, numero)
+    if ja:
+        return jsonify({"erro": f"Já existe uma prova enviada por {ja['aluno_nome']} (nº {ja['aluno_numero'] or '-'}) em {ja['enviado_em'][11:16]}. Fale com o professor."}), 409
+    item = db.atividade_obter(ap["atividade_id"])
+    return jsonify({"questoes": _questoes_para_aluno(item, ap, f"{nome}|{numero}".lower()), "tempo_min": ap.get("tempo_min")})
+
+
+@app.route("/api/prova/<codigo>/enviar", methods=["POST"])
+def api_prova_aluno_enviar(codigo):
+    ap = db.aplicacao_por_codigo(codigo)
+    if not ap:
+        return jsonify({"erro": "Código não encontrado."}), 404
+    if not ap["aberta"]:
+        return jsonify({"erro": "Esta prova já foi encerrada pelo professor."}), 403
+    b = request.get_json(force=True) or {}
+    nome = str(b.get("nome") or "").strip()[:80]
+    numero = str(b.get("numero") or "").strip()[:10]
+    if len(nome) < 3:
+        return jsonify({"erro": "Nome inválido."}), 400
+    if db.resposta_ja_enviada(ap["id"], nome, numero):
+        return jsonify({"erro": "Sua prova já havia sido enviada."}), 409
+    respostas = {str(k): v for k, v in (b.get("respostas") or {}).items()}
+    item = db.atividade_obter(ap["atividade_id"])
+    n_q = len(item["conteudo"].get("questoes") or [])
+    respostas = {k: (v if isinstance(v, (int, str)) else "") for k, v in respostas.items() if k.isdigit() and int(k) < n_q}
+    for k, v in list(respostas.items()):
+        if isinstance(v, str):
+            respostas[k] = v[:4000]
+    rid = db.resposta_criar(ap["id"], nome, numero, respostas, origem="online")
+    # corrige ME na hora; discursivas com IA (em seguida, síncrono — poucos segundos)
+    corr = correcao.corrigir(item, respostas, usar_ia=True)
+    db.resposta_corrigir(rid, corr, corr["nota"], corr["nota_me"], corr["nota_disc"], corr["status"])
+    resp = {"ok": True}
+    if ap.get("mostrar_nota"):
+        resp.update(acertos_me=corr["acertos_me"], total_me=corr["total_me"], total_disc=corr["total_disc"],
+                    nota_me=corr["nota_me"], possivel=corr["possivel"],
+                    nota=corr["nota"] if corr["status"] == "corrigido" and not corr["total_disc"] else None)
+    return jsonify(resp)
+
+
+@app.route("/api/aplicacoes/<int:ap_id>/respostas")
+def api_respostas(ap_id):
+    ap, item, err = _aplicacao_e_dono(ap_id)
+    if err:
+        return err
+    rs = db.respostas_da_aplicacao(ap_id)
+    return jsonify({"aplicacao": ap, "respostas": rs, "questoes": item["conteudo"].get("questoes") or [],
+                    "avaliativa": bool(item["params"].get("avaliativa")), "estatisticas": correcao.estatisticas(item, rs)})
+
+
+@app.route("/api/aplicacoes/<int:ap_id>/lancar", methods=["POST"])
+def api_lancar_papel(ap_id):
+    """Prova em papel: professor digita as respostas. body: {alunos:[{nome, numero, me:"BCADE...", disc:{i:texto}}]}"""
+    ap, item, err = _aplicacao_e_dono(ap_id)
+    if err:
+        return err
+    b = request.get_json(force=True) or {}
+    qs = item["conteudo"].get("questoes") or []
+    idx_me = [i for i, q in enumerate(qs) if q.get("tipo") == "me"]
+    feitos, erros = 0, []
+    for a in (b.get("alunos") or [])[:80]:
+        nome = str(a.get("nome") or "").strip()[:80]
+        if len(nome) < 2:
+            continue
+        numero = str(a.get("numero") or "").strip()[:10]
+        letras = re.sub(r"[^A-Ea-e\-_.xX*]", "", str(a.get("me") or "")).upper()
+        respostas = {}
+        for pos, i in enumerate(idx_me):
+            if pos < len(letras) and letras[pos] in "ABCDE":
+                respostas[str(i)] = "ABCDE".index(letras[pos])
+        for k, v in (a.get("disc") or {}).items():
+            if str(k).isdigit():
+                respostas[str(k)] = str(v)[:4000]
+        notas_disc = a.get("notas_disc") or {}   # professor já corrigiu no papel: {i: nota}
+        ja = db.resposta_ja_enviada(ap_id, nome, numero)
+        if ja:
+            db.resposta_atualizar(ja["id"], aluno_nome=nome, aluno_numero=numero, respostas=respostas)
+            rid = ja["id"]
+        else:
+            rid = db.resposta_criar(ap_id, nome, numero, respostas, origem="papel")
+        usar_ia = bool(b.get("usar_ia", True)) and not notas_disc
+        corr = correcao.corrigir(item, respostas, usar_ia=usar_ia)
+        for k, v in notas_disc.items():
+            try:
+                corr = correcao.aplicar_ajuste_professor(corr, int(k), float(str(v).replace(",", ".")), None, qs,
+                                                         bool(item["params"].get("avaliativa")))
+            except (ValueError, TypeError):
+                pass
+        if notas_disc or not [q for q in qs if q.get("tipo") == "disc"]:
+            corr["status"] = "corrigido"
+        db.resposta_corrigir(rid, corr, corr["nota"], corr["nota_me"], corr["nota_disc"], corr["status"])
+        feitos += 1
+    return jsonify({"ok": True, "feitos": feitos, "erros": erros})
+
+
+@app.route("/api/respostas/<int:rid>/nota", methods=["POST"])
+def api_resposta_nota(rid):
+    """Professor confirma/ajusta a nota de uma questão. body: {i, nota, comentario}"""
+    r = db.resposta_obter(rid)
+    if not r:
+        return jsonify({"erro": "não encontrada"}), 404
+    ap, item, err = _aplicacao_e_dono(r["aplicacao_id"])
+    if err:
+        return err
+    b = request.get_json(force=True) or {}
+    corr = r["correcao"] or correcao.corrigir(item, r["respostas"], usar_ia=False)
+    try:
+        corr = correcao.aplicar_ajuste_professor(corr, int(b.get("i")), float(str(b.get("nota", 0)).replace(",", ".")),
+                                                 b.get("comentario"), item["conteudo"].get("questoes") or [],
+                                                 bool(item["params"].get("avaliativa")))
+    except (ValueError, TypeError):
+        return jsonify({"erro": "nota inválida"}), 400
+    db.resposta_corrigir(rid, corr, corr["nota"], corr["nota_me"], corr["nota_disc"], corr["status"])
+    return jsonify({"ok": True, "correcao": corr})
+
+
+@app.route("/api/respostas/<int:rid>/confirmar", methods=["POST"])
+def api_resposta_confirmar(rid):
+    """Aceita todas as sugestões da IA desta prova."""
+    r = db.resposta_obter(rid)
+    if not r:
+        return jsonify({"erro": "não encontrada"}), 404
+    ap, item, err = _aplicacao_e_dono(r["aplicacao_id"])
+    if err:
+        return err
+    corr = r["correcao"] or correcao.corrigir(item, r["respostas"], usar_ia=False)
+    for it in corr["itens"]:
+        if it["tipo"] == "disc":
+            if it.get("nota") is None:
+                it["nota"] = 0.0
+            it["origem"] = "professor"; it["confianca"] = "alta"
+    corr = correcao.aplicar_ajuste_professor(corr, -1, 0, None, item["conteudo"].get("questoes") or [], bool(item["params"].get("avaliativa")))
+    corr["status"] = "corrigido"
+    db.resposta_corrigir(rid, corr, corr["nota"], corr["nota_me"], corr["nota_disc"], corr["status"])
+    return jsonify({"ok": True, "correcao": corr})
+
+
+@app.route("/api/respostas/<int:rid>/recorrigir", methods=["POST"])
+def api_resposta_recorrigir(rid):
+    """Refaz a correção (ex.: após anular questão ou mudar gabarito). Mantém notas dadas pelo professor."""
+    r = db.resposta_obter(rid)
+    if not r:
+        return jsonify({"erro": "não encontrada"}), 404
+    ap, item, err = _aplicacao_e_dono(r["aplicacao_id"])
+    if err:
+        return err
+    ant = {it["i"]: it for it in (r["correcao"] or {}).get("itens", [])}
+    corr = correcao.corrigir(item, r["respostas"], usar_ia=bool((request.get_json(silent=True) or {}).get("usar_ia", True)), anteriores=ant)
+    db.resposta_corrigir(rid, corr, corr["nota"], corr["nota_me"], corr["nota_disc"], corr["status"])
+    return jsonify({"ok": True, "correcao": corr})
+
+
+@app.route("/api/respostas/<int:rid>", methods=["DELETE"])
+def api_resposta_excluir(rid):
+    r = db.resposta_obter(rid)
+    if not r:
+        return jsonify({"erro": "não encontrada"}), 404
+    ap, item, err = _aplicacao_e_dono(r["aplicacao_id"])
+    if err:
+        return err
+    db.resposta_excluir(rid)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/aplicacoes/<int:ap_id>/exportar")
+def api_aplicacao_exportar(ap_id):
+    """Excel com notas por aluno, acertos por questão e estatísticas."""
+    ap, item, err = _aplicacao_e_dono(ap_id)
+    if err:
+        return err
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+    rs = db.respostas_da_aplicacao(ap_id)
+    qs = item["conteudo"].get("questoes") or []
+    aval = bool(item["params"].get("avaliativa"))
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Notas"
+    cab = ["Nº", "Estudante", "Nota", "Múltipla escolha", "Discursivas", "Acertos ME", "Situação", "Enviado em", "Origem"] + \
+          [f"Q{i+1}" for i in range(len(qs))]
+    ws.append(cab)
+    azul = PatternFill("solid", fgColor="1F4E79")
+    for c in ws[1]:
+        c.font = Font(bold=True, color="FFFFFF"); c.fill = azul; c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    sit = {"corrigido": "Corrigida", "revisar": "Revisar", "pendente": "Pendente"}
+    for r in rs:
+        corr = r.get("correcao") or {}
+        linha = [r.get("aluno_numero") or "", r.get("aluno_nome"), r.get("nota"), r.get("nota_me"), r.get("nota_disc"),
+                 f"{corr.get('acertos_me', '')}/{corr.get('total_me', '')}" if corr else "", sit.get(r.get("status"), r.get("status")),
+                 _dt_br(r.get("enviado_em")), "Online" if r.get("origem") == "online" else "Papel"]
+        por_i = {it["i"]: it for it in corr.get("itens", [])}
+        for i, q in enumerate(qs):
+            it = por_i.get(i)
+            if not it:
+                linha.append("")
+            elif q.get("tipo") == "me":
+                linha.append(("ABCDE"[it["marcada"]] if it.get("marcada") is not None else "—") + (" ✔" if it["acertou"] else ""))
+            else:
+                linha.append(it.get("nota") if it.get("nota") is not None else "?")
+        ws.append(linha)
+    ws.freeze_panes = "C2"
+    ws.auto_filter.ref = ws.dimensions
+    for i, w in enumerate([6, 34, 8, 12, 12, 11, 11, 17, 8] + [7] * len(qs), 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    # aba questões
+    est = correcao.estatisticas(item, rs)
+    w2 = wb.create_sheet("Por questão")
+    w2.append(["Questão", "Tipo", "Habilidade", "% acerto", "Gabarito", "A", "B", "C", "D", "E", "Enunciado"])
+    for c in w2[1]:
+        c.font = Font(bold=True, color="FFFFFF"); c.fill = azul
+    for x in est["por_questao"]:
+        d = x.get("distribuicao") or ["", "", "", "", ""]
+        w2.append([x["i"] + 1, "ME" if x["tipo"] == "me" else "Disc.", x["habilidade"], x["pct"],
+                   "ABCDE"[x["correta"]] if x["tipo"] == "me" and x.get("correta") is not None else "", *d, x["enunciado"]])
+    for i, w in enumerate([8, 7, 14, 9, 9, 5, 5, 5, 5, 5, 80], 1):
+        w2.column_dimensions[get_column_letter(i)].width = w
+    w3 = wb.create_sheet("Resumo")
+    for a, b in [("Prova", item["conteudo"].get("titulo", "")), ("Disciplina", item["params"].get("disciplina", "")),
+                 ("Turma", ap.get("turma") or item["params"].get("serie", "")), ("Professor(a)", item["params"].get("professor", "")),
+                 ("Código", ap["codigo"]), ("Respostas", est["n_respostas"]), ("Corrigidas", est["n_corrigidas"]),
+                 ("Média", est["media"]), ("Maior nota", est["maior"]), ("Menor nota", est["menor"]),
+                 ("Abaixo de 60%", est["abaixo_media"]), ("Faixas (<50 / 50-70 / 70-90 / ≥90)", " / ".join(map(str, est["faixas"])))]:
+        w3.append([a, b])
+    w3.column_dimensions["A"].width = 34; w3.column_dimensions["B"].width = 40
+    for c in w3["A"]:
+        c.font = Font(bold=True)
+    if est["habilidades"]:
+        w3.append([]); w3.append(["Habilidade", "% acerto", "Questões"])
+        for h in est["habilidades"]:
+            w3.append([h["habilidade"], h["pct"], ", ".join(map(str, h["questoes"]))])
+    out = BytesIO(); wb.save(out); out.seek(0)
+    return send_file(out, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", as_attachment=True,
+                     download_name=f"notas-{_slug(item['conteudo'].get('titulo',''))[:40]}-{ap['codigo']}.xlsx")
+
+
+@app.route("/api/aplicacoes/<int:ap_id>/relatorio.pdf")
+def api_aplicacao_relatorio(ap_id):
+    ap, item, err = _aplicacao_e_dono(ap_id)
+    if err:
+        return err
+    from pdf_atividade import gerar_pdf_relatorio
+    rs = db.respostas_da_aplicacao(ap_id)
+    pdf = gerar_pdf_relatorio(item, ap, rs, correcao.estatisticas(item, rs))
+    return send_file(BytesIO(pdf), mimetype="application/pdf", as_attachment=True,
+                     download_name=f"resultado-{_slug(item['conteudo'].get('titulo',''))[:40]}-{ap['codigo']}.pdf")
+
+
+@app.route("/correcao/<int:ap_id>")
+def correcao_pagina(ap_id):
+    ap, item, err = _aplicacao_e_dono(ap_id)
+    if err:
+        return redirect(url_for("atividades"))
+    return render_template("correcao.html", ap=ap, item=item, e_supervisao=_e_supervisao(), usuario=usuario_atual(),
+                           link=f"{_base_url()}/prova/{ap['codigo']}", tipos=TIPOS_ATIVIDADE)
 
 
 @app.route("/usuarios")

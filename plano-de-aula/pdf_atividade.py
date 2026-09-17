@@ -241,3 +241,100 @@ def gerar_pdf_gabarito(ativ: dict, meta: dict) -> bytes:
 
     doc.build(story, onFirstPage=rodape, onLaterPages=rodape)
     return buf.getvalue()
+
+
+# --------------------------------------------------------------------------- #
+# Folha de acesso (código + QR) e relatório de resultado
+# --------------------------------------------------------------------------- #
+def gerar_pdf_folha_acesso(titulo: str, meta: dict, codigo: str, link: str, turma: str = "") -> bytes:
+    import segno
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=18 * mm, bottomMargin=15 * mm,
+                            title=f"Acesso à prova {codigo}")
+    largura = A4[0] - doc.leftMargin - doc.rightMargin
+    story: list = []
+    _cabecalho(story, {"titulo": titulo}, largura, f"{meta.get('tipo_nome','')} · {meta.get('disciplina','')} · {turma or meta.get('serie','')} · Prof. {meta.get('professor','')}")
+    story.append(Spacer(1, 8 * mm))
+    st_big = ParagraphStyle("big", fontName=FONT_B, fontSize=54, leading=62, alignment=TA_CENTER, textColor=colors.HexColor("#e10600"))
+    st_med = ParagraphStyle("med", fontName=FONT, fontSize=14, leading=18, alignment=TA_CENTER)
+    st_link = ParagraphStyle("lnk", fontName=FONT_B, fontSize=16, leading=20, alignment=TA_CENTER, textColor=colors.HexColor("#1F4E79"))
+    story.append(Paragraph("CÓDIGO DA PROVA", st_med))
+    story.append(Paragraph(_esc(codigo), st_big))
+    story.append(Spacer(1, 6 * mm))
+    qr = BytesIO()
+    segno.make(link, error="m").save(qr, kind="png", scale=10, border=1)
+    qr.seek(0)
+    img = Image(qr, width=70 * mm, height=70 * mm)
+    img.hAlign = "CENTER"
+    story += [img, Spacer(1, 5 * mm)]
+    story.append(Paragraph("Aponte a câmera do celular para o QR code ou acesse:", st_med))
+    story.append(Paragraph(_esc(link), st_link))
+    story.append(Spacer(1, 10 * mm))
+    passos = ["Abra o link (ou leia o QR code).", "Digite seu nome completo e seu número da chamada.",
+              "Responda com calma. Você pode voltar às questões antes de enviar.", "Clique em ENVIAR ao terminar. Só é possível enviar uma vez."]
+    for i, ptxt in enumerate(passos, 1):
+        story.append(Paragraph(f"<b>{i}.</b> {_esc(ptxt)}", ParagraphStyle("p", parent=st_med, alignment=0, leftIndent=40)))
+    doc.build(story)
+    return buf.getvalue()
+
+
+def gerar_pdf_relatorio(item: dict, ap: dict, respostas: list[dict], est: dict) -> bytes:
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=16 * mm, rightMargin=16 * mm, topMargin=12 * mm, bottomMargin=15 * mm,
+                            title="Resultado da prova")
+    largura = A4[0] - doc.leftMargin - doc.rightMargin
+    meta = {"tipo_nome": "Resultado", "disciplina": item["params"].get("disciplina", ""), "serie": ap.get("turma") or item["params"].get("serie", ""),
+            "professor": item["params"].get("professor", "")}
+    story: list = []
+    _cabecalho(story, {"titulo": f"RESULTADO – {item['conteudo'].get('titulo','')}"}, largura,
+               f"{meta['disciplina']} · {meta['serie']} · Prof. {meta['professor']} · código {ap['codigo']}")
+    grade = TableStyle([("GRID", (0, 0), (-1, -1), 0.5, colors.black), ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e6e6e6")),
+                        ("FONTNAME", (0, 0), (-1, 0), FONT_B), ("FONTSIZE", (0, 0), (-1, -1), 9),
+                        ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2), ("VALIGN", (0, 0), (-1, -1), "MIDDLE")])
+    fmt = lambda v: "" if v is None else _fmt_valor(v)  # noqa: E731
+    # resumo
+    res = Table([["Respostas", "Corrigidas", "Média", "Maior", "Menor", "Abaixo de 60%"],
+                 [est["n_respostas"], est["n_corrigidas"], fmt(est["media"]), fmt(est["maior"]), fmt(est["menor"]), est["abaixo_media"]]],
+                colWidths=[largura / 6] * 6)
+    res.setStyle(grade)
+    story += [res, Spacer(1, 4 * mm)]
+    f = est["faixas"]
+    story.append(Paragraph(f"<b>Distribuição:</b> abaixo de 50%: {f[0]} · 50–70%: {f[1]} · 70–90%: {f[2]} · 90% ou mais: {f[3]}", st_gab))
+    story.append(Spacer(1, 4 * mm))
+    # notas por aluno
+    story.append(Paragraph("<b>NOTAS POR ESTUDANTE</b>", st_gab))
+    linhas = [["Nº", "Estudante", "Acertos ME", "Nota ME", "Nota disc.", "NOTA", "Situação"]]
+    sit = {"corrigido": "Corrigida", "revisar": "Revisar", "pendente": "Pendente"}
+    for r in respostas:
+        c = r.get("correcao") or {}
+        linhas.append([r.get("aluno_numero") or "", Paragraph(_esc(r.get("aluno_nome", "")), st_gab),
+                       f"{c.get('acertos_me','')}/{c.get('total_me','')}" if c else "", fmt(r.get("nota_me")), fmt(r.get("nota_disc")),
+                       fmt(r.get("nota")), sit.get(r.get("status"), "")])
+    t = Table(linhas, colWidths=[12 * mm, largura - 12 * mm - 5 * 22 * mm, 22 * mm, 22 * mm, 22 * mm, 22 * mm, 22 * mm], repeatRows=1)
+    t.setStyle(grade)
+    story += [t, Spacer(1, 5 * mm)]
+    # por questão
+    story.append(Paragraph("<b>DESEMPENHO POR QUESTÃO</b>", st_gab))
+    linhas = [["Q", "Tipo", "Habilidade", "% acerto", "Gab.", "A", "B", "C", "D", "E"]]
+    for x in est["por_questao"]:
+        d = x.get("distribuicao") or ["", "", "", "", ""]
+        linhas.append([x["i"] + 1, "ME" if x["tipo"] == "me" else "Disc.", x["habilidade"], f"{x['pct']}%" if x["pct"] is not None else "",
+                       "ABCDE"[x["correta"]] if x["tipo"] == "me" and x.get("correta") is not None else "", *d])
+    t = Table(linhas, colWidths=[10 * mm, 14 * mm, 32 * mm, 20 * mm, 14 * mm] + [12 * mm] * 5, repeatRows=1)
+    t.setStyle(grade)
+    story += [t, Spacer(1, 4 * mm)]
+    if est["mais_erradas"]:
+        story.append(Paragraph("<b>QUESTÕES COM MENOR ACERTO (retomar em sala):</b>", st_gab))
+        for x in est["mais_erradas"]:
+            story.append(Paragraph(_esc(f"• Q{x['i']+1} ({x['pct']}%) — {x['enunciado']}"), st_inst))
+    if est["habilidades"]:
+        story.append(Spacer(1, 3 * mm))
+        story.append(Paragraph("<b>POR HABILIDADE (BNCC):</b>", st_gab))
+        for h in est["habilidades"]:
+            story.append(Paragraph(_esc(f"• {h['habilidade']}: {h['pct']}% de acerto (questões {', '.join(map(str, h['questoes']))})"), st_inst))
+
+    def rodape(canvas, d):
+        canvas.saveState(); canvas.setFont(FONT, 8); canvas.setFillColor(colors.grey)
+        canvas.drawRightString(A4[0] - d.rightMargin, 8 * mm, f"Página {d.page}"); canvas.restoreState()
+    doc.build(story, onFirstPage=rodape, onLaterPages=rodape)
+    return buf.getvalue()
