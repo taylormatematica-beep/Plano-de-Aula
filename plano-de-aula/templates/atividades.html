@@ -180,7 +180,7 @@ async function gerar(){
   const ps = planos.filter(p=>sel.has(p.id));
   const body={planos_ids:[...sel], tipo:$('tipo').value, n_me:+$('nMe').value||0, n_disc:+$('nDisc').value||0, dificuldade:$('dif').value,
     avaliativa:$('aval').checked, valor_total:$('valorTotal').value, observacoes:$('obs').value, disciplina:ps[0]?.disciplina||'', serie:ps[0]?.serie||''};
-  const b=$('btnGerar'); b.disabled=true; b.innerHTML='<span class="spin"></span>Elaborando questões… (30 a 90 s)'; msg('msgGerar','');
+  const b=$('btnGerar'); b.disabled=true; b.innerHTML='<span class="spin"></span>Elaborando questões… (15 a 40 s)'; msg('msgGerar','');
   try{
     const r=await fetch('/api/atividades/gerar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const j=await r.json(); if(!r.ok) throw new Error(j.erro||'Erro');
