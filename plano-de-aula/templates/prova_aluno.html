@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>{{ titulo }} — Prova</title>
+<style>
+  :root{--verm:#e10600;--borda:#d9d9de;--muted:#6b6b76;--verde:#186a30}
+  *{box-sizing:border-box}body{margin:0;font-family:"Segoe UI",Roboto,Arial,sans-serif;background:#f4f4f5;color:#222;padding-bottom:90px}
+  header{background:#fff;border-bottom:3px solid var(--verm);padding:10px 14px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:5}
+  header img{height:34px}header .t{font-size:14px;font-weight:700;line-height:1.2}header .s{font-size:12px;color:var(--muted)}
+  #timer{margin-left:auto;font-weight:700;font-size:15px;color:var(--verm);display:none}
+  main{max-width:720px;margin:0 auto;padding:14px}
+  .card{background:#fff;border:1px solid var(--borda);border-radius:12px;padding:16px;margin-bottom:12px}
+  h1{font-size:18px;margin:0 0 6px}p{margin:0 0 10px;font-size:14px}
+  label{font-size:12px;font-weight:600;color:#444;display:block;margin:10px 0 4px}
+  input[type=text],input[type=number],textarea{width:100%;padding:12px;border:1px solid var(--borda);border-radius:8px;font-size:16px;font-family:inherit}
+  textarea{min-height:110px;resize:vertical}
+  .btn{width:100%;background:var(--verm);color:#fff;border:0;border-radius:10px;padding:15px;font-size:17px;font-weight:700;cursor:pointer}
+  .btn:disabled{opacity:.5}
+  .q{background:#fff;border:1px solid var(--borda);border-radius:12px;padding:14px;margin-bottom:12px}
+  .q .n{font-weight:700;font-size:13px;color:var(--muted);margin-bottom:6px;display:flex;justify-content:space-between}
+  .q .e{font-size:16px;line-height:1.5;white-space:pre-wrap;margin-bottom:10px}
+  .alt{display:flex;gap:10px;align-items:flex-start;padding:11px 10px;border:1px solid var(--borda);border-radius:8px;margin-bottom:6px;cursor:pointer;font-size:15px;line-height:1.4}
+  .alt.on{border-color:var(--verm);background:#fff3f2}
+  .alt b{min-width:20px}.alt input{display:none}
+  .inst{background:#fff7e6;border:1px solid #f5d38a;color:#7a4b00;padding:10px 12px;border-radius:8px;font-size:13px;white-space:pre-wrap}
+  .barra{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--borda);padding:10px 14px;display:flex;gap:10px;align-items:center;z-index:5}
+  .barra .p{font-size:13px;color:var(--muted);flex:1}
+  .fim{text-align:center;padding:30px 16px}.fim .ok{font-size:54px}.fim h2{margin:8px 0}
+  .err{background:#fdecea;color:#8a1c1c;border:1px solid #f3b4b4;padding:10px;border-radius:8px;font-size:14px;margin-top:10px}
+  .vazio-aviso{color:var(--verm);font-size:13px;margin-top:6px;display:none}
+</style>
+</head>
+<body>
+<header><img src="/static/logo.png" alt=""><div><div class="t">{{ titulo }}</div><div class="s">{{ disciplina }} · {{ serie }} · Prof. {{ professor }}</div></div><div id="timer"></div></header>
+<main>
+  {% if not aberta %}
+  <div class="card fim"><div class="ok">🔒</div><h2>Prova encerrada</h2><p>O professor já encerrou esta prova.</p></div>
+  {% else %}
+  <section class="card" id="ident">
+    <h1>Identifique-se</h1>
+    <p>Preencha com atenção: é assim que o professor vai encontrar a sua prova.</p>
+    {% if instrucoes %}<div class="inst">{{ instrucoes }}</div>{% endif %}
+    <label>Nome completo</label><input type="text" id="nome" autocomplete="name" placeholder="Seu nome completo">
+    <label>Número da chamada</label><input type="number" id="numero" inputmode="numeric" placeholder="Ex.: 12" style="max-width:140px">
+    {% if tempo_min %}<p style="margin-top:10px;font-size:13px;color:var(--muted)">⏱ Tempo de prova: {{ tempo_min }} minutos a partir do início.</p>{% endif %}
+    <div id="errIdent" class="err" style="display:none"></div>
+    <button class="btn" style="margin-top:14px" onclick="comecar()" id="btnIni">Começar a prova</button>
+  </section>
+
+  <section id="prova" style="display:none">
+    <div id="qs"></div>
+    <div class="card"><div class="vazio-aviso" id="avisoVazio"></div><div id="errEnv" class="err" style="display:none"></div></div>
+  </section>
+
+  <section class="card fim" id="fim" style="display:none">
+    <div class="ok">✅</div><h2>Prova enviada!</h2>
+    <p id="fimTxt">Suas respostas foram registradas. Pode fechar esta página.</p>
+    <div id="fimNota" style="font-size:15px;margin-top:8px"></div>
+  </section>
+  {% endif %}
+</main>
+{% if aberta %}
+<div class="barra" id="barra" style="display:none"><div class="p" id="prog"></div><button class="btn" style="width:auto;padding:12px 22px" onclick="enviar()" id="btnEnv">ENVIAR</button></div>
+<script>
+const COD = {{ codigo|tojson }};
+const $ = id => document.getElementById(id);
+const CHAVE = 'prova-'+COD;
+let qs=[], resp={}, nome='', numero='', fimEm=null, tick=null;
+function esc(t){return String(t??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+// restaura rascunho se o aluno recarregar a página
+try{ const r=JSON.parse(localStorage.getItem(CHAVE)||'null'); if(r){ resp=r.resp||{}; $('nome').value=r.nome||''; $('numero').value=r.numero||''; } }catch(e){}
+function salvarLocal(){ try{ localStorage.setItem(CHAVE, JSON.stringify({nome,numero,resp,fimEm})); }catch(e){} }
+
+async function comecar(){
+  nome=$('nome').value.trim(); numero=$('numero').value.trim(); $('errIdent').style.display='none';
+  if(nome.length<3){ $('errIdent').textContent='Digite seu nome completo.'; $('errIdent').style.display=''; return; }
+  $('btnIni').disabled=true; $('btnIni').textContent='Carregando…';
+  const r=await fetch(`/api/prova/${COD}/info`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nome,numero})});
+  const j=await r.json(); $('btnIni').disabled=false; $('btnIni').textContent='Começar a prova';
+  if(!r.ok){ $('errIdent').textContent=j.erro||'Erro'; $('errIdent').style.display=''; return; }
+  qs=j.questoes; $('ident').style.display='none'; $('prova').style.display=''; $('barra').style.display='flex';
+  if(j.tempo_min){ try{ const r0=JSON.parse(localStorage.getItem(CHAVE)||'null'); fimEm = (r0&&r0.fimEm)||(Date.now()+j.tempo_min*60000); }catch(e){ fimEm=Date.now()+j.tempo_min*60000; } $('timer').style.display=''; tick=setInterval(timer,1000); timer(); }
+  salvarLocal(); render(); window.scrollTo(0,0);
+}
+function timer(){ const s=Math.max(0,Math.round((fimEm-Date.now())/1000)); $('timer').textContent=`⏱ ${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`; if(s<=0){ clearInterval(tick); enviar(true); } }
+function render(){
+  $('qs').innerHTML = qs.map((q,idx)=>`<div class="q" id="q${q.i}">
+    <div class="n"><span>QUESTÃO ${String(idx+1).padStart(2,'0')}</span>${q.valor!=null?`<span>${String(q.valor).replace('.',',')} pt</span>`:''}</div>
+    <div class="e">${esc(q.enunciado)}</div>
+    ${q.tipo==='me' ? q.alternativas.map((a,pos)=>`<label class="alt ${resp[q.i]===a.k?'on':''}" onclick="marcar(${q.i},${a.k})"><b>${'ABCDE'[pos]})</b><span>${esc(a.texto)}</span></label>`).join('')
+    : `<textarea placeholder="Escreva sua resposta aqui" oninput="texto(${q.i},this.value)">${esc(resp[q.i]||'')}</textarea>`}
+  </div>`).join('');
+  prog();
+}
+function marcar(i,k){ resp[i]=k; salvarLocal(); document.querySelectorAll(`#q${i} .alt`).forEach(l=>l.classList.remove('on')); event.currentTarget.classList.add('on'); prog(); }
+function texto(i,v){ resp[i]=v; salvarLocal(); prog(); }
+function respondidas(){ return qs.filter(q=> q.tipo==='me' ? resp[q.i]!==undefined : (resp[q.i]||'').trim().length>0).length; }
+function prog(){ $('prog').textContent=`${respondidas()} de ${qs.length} respondidas`; }
+async function enviar(auto){
+  const faltam=qs.length-respondidas();
+  if(!auto && faltam>0 && !confirm(`Você deixou ${faltam} questão(ões) em branco. Enviar mesmo assim?`)) return;
+  if(!auto && !confirm('Enviar a prova? Depois de enviada não é possível alterar.')) return;
+  $('btnEnv').disabled=true; $('btnEnv').textContent='Enviando…'; $('errEnv').style.display='none';
+  const r=await fetch(`/api/prova/${COD}/enviar`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nome,numero,respostas:resp})});
+  const j=await r.json();
+  if(!r.ok){ $('errEnv').textContent=j.erro||'Erro ao enviar. Tente novamente.'; $('errEnv').style.display=''; $('btnEnv').disabled=false; $('btnEnv').textContent='ENVIAR'; if(r.status===409){ finalizar(j); } return; }
+  finalizar(j);
+}
+function finalizar(j){
+  clearInterval(tick); try{ localStorage.removeItem(CHAVE); }catch(e){}
+  $('prova').style.display='none'; $('barra').style.display='none'; $('timer').style.display='none'; $('fim').style.display='';
+  if(j && j.total_me!=null){
+    let t=`Múltipla escolha: <b>${j.acertos_me} de ${j.total_me}</b> acertos`;
+    if(j.nota!=null) t+=` · Nota: <b>${String(j.nota).replace('.',',')}</b>`;
+    else if(j.total_disc) t+=`<br><small>As questões discursivas serão corrigidas pelo professor.</small>`;
+    $('fimNota').innerHTML=t;
+  }
+  window.scrollTo(0,0);
+}
+</script>
+{% endif %}
+</body>
+</html>

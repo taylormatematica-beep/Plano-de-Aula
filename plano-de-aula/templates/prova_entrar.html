@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Entrar na prova — Presidente Bernardes</title>
+<style>
+  *{box-sizing:border-box}body{margin:0;font-family:"Segoe UI",Roboto,Arial,sans-serif;background:#f4f4f5;color:#222;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:20px}
+  .card{background:#fff;border:1px solid #d9d9de;border-radius:14px;padding:28px 24px;width:100%;max-width:400px;text-align:center}
+  img{height:54px;margin-bottom:10px}h1{font-size:20px;margin:0 0 6px}p{color:#6b6b76;font-size:14px;margin:0 0 18px}
+  input{width:100%;padding:16px;border:2px solid #d9d9de;border-radius:10px;font-size:28px;text-align:center;letter-spacing:6px;text-transform:uppercase;font-weight:700}
+  input:focus{outline:none;border-color:#e10600}
+  button{width:100%;margin-top:14px;background:#e10600;color:#fff;border:0;border-radius:10px;padding:16px;font-size:17px;font-weight:700;cursor:pointer}
+  .err{background:#fdecea;color:#8a1c1c;border:1px solid #f3b4b4;padding:10px;border-radius:8px;font-size:14px;margin-top:12px}
+</style>
+</head>
+<body>
+<form class="card" method="post" action="/prova">
+  <img src="/static/logo.png" alt="Presidente Bernardes">
+  <h1>Entrar na prova</h1>
+  <p>Digite o código que o professor passou.</p>
+  <input name="codigo" maxlength="8" autocomplete="off" autofocus placeholder="CÓDIGO" required>
+  <button type="submit">Continuar</button>
+  {% if erro %}<div class="err">{{ erro }}</div>{% endif %}
+</form>
+</body>
+</html>

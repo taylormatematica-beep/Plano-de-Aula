@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Correção — {{ item.conteudo.titulo }}</title>
+<style>
+  :root{--preto:#111;--verm:#e10600;--cinza:#f4f4f5;--borda:#d9d9de;--txt:#222;--muted:#6b6b76;--verde:#186a30;--azul:#1F4E79;--amar:#7a4b00}
+  *{box-sizing:border-box}body{margin:0;font-family:"Segoe UI",Roboto,Arial,sans-serif;background:var(--cinza);color:var(--txt)}
+  header{background:#fff;border-bottom:3px solid var(--verm);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  header img{height:44px}.links{display:flex;gap:8px;align-items:center;font-size:13px;flex-wrap:wrap}
+  .link{background:none;border:1px solid var(--borda);border-radius:6px;padding:6px 10px;cursor:pointer;font-size:13px;text-decoration:none;color:inherit}
+  main{max-width:1180px;margin:24px auto;padding:0 16px;display:grid;gap:18px}
+  .card{background:#fff;border:1px solid var(--borda);border-radius:10px;padding:20px}
+  h1{font-size:20px;margin:0 0 4px}h2{font-size:16px;margin:0 0 10px}.sub{font-size:13px;color:var(--muted);margin:0 0 12px}
+  input,select,textarea{padding:8px 10px;border:1px solid var(--borda);border-radius:6px;font-size:14px;font-family:inherit;background:#fff}
+  table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:8px;border-bottom:1px solid var(--borda);text-align:left;vertical-align:middle}
+  th{font-size:12px;text-transform:uppercase;color:var(--muted)}tr:hover td{background:#fafafa}
+  .acao{border:1px solid var(--borda);background:#fff;border-radius:6px;padding:5px 9px;cursor:pointer;font-size:13px;margin-right:4px;text-decoration:none;color:inherit;display:inline-block}
+  .acao.red{color:var(--verm);border-color:#f3b4b4}.acao.pri{background:var(--verm);border-color:var(--verm);color:#fff;font-weight:600}
+  .acao.ok{color:var(--verde);border-color:#bfe3c9;background:#f2fbf4}.acao.az{background:var(--azul);border-color:var(--azul);color:#fff;font-weight:600}
+  .tag{font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600}.tag.corrigido{background:#e8f5ec;color:var(--verde)}.tag.revisar{background:#fff7e6;color:var(--amar)}.tag.pendente{background:var(--cinza);color:var(--muted)}
+  .stats{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px}.stat{background:var(--cinza);border-radius:8px;padding:8px 14px;font-size:13px;min-width:110px}.stat b{font-size:20px;display:block}
+  .acesso{display:grid;grid-template-columns:auto 1fr;gap:18px;align-items:center}.acesso img{width:150px;height:150px;border:1px solid var(--borda);border-radius:8px}
+  .codigo{font-size:42px;font-weight:800;letter-spacing:6px;color:var(--verm);line-height:1}
+  .lnk{font-family:monospace;font-size:14px;background:var(--cinza);padding:6px 10px;border-radius:6px;display:inline-block;margin-top:6px;word-break:break-all}
+  .vazio{color:var(--muted);text-align:center;padding:28px}
+  .barra-q{display:flex;gap:3px;flex-wrap:wrap}.bq{width:26px;height:22px;border-radius:4px;font-size:11px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600}
+  .bq.ok{background:#2e9e4f}.bq.no{background:#d9534f}.bq.disc{background:var(--azul)}.bq.nulo{background:#bbb}
+  /* modal revisão */
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:flex-start;justify-content:center;padding:30px 12px;overflow:auto;z-index:20}
+  .modal .box{background:#fff;border-radius:12px;max-width:880px;width:100%;padding:22px}
+  .rq{border:1px solid var(--borda);border-radius:8px;padding:12px;margin-bottom:10px}
+  .rq .e{font-size:13px;color:#444;margin-bottom:6px;white-space:pre-wrap}
+  .rq .aluno{background:#fff;border-left:4px solid var(--azul);padding:8px 10px;font-size:14px;white-space:pre-wrap;margin:6px 0;background:#f7f9fc}
+  .rq .esp{font-size:12px;color:var(--muted);white-space:pre-wrap}
+  .rq .nota{display:flex;gap:10px;align-items:center;margin-top:8px;flex-wrap:wrap}.rq .nota input[type=number]{width:80px}.rq .nota input[type=text]{flex:1;min-width:200px}
+  .conf.baixa{color:var(--verm);font-weight:600}.conf.media{color:var(--amar)}.conf.alta{color:var(--verde)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}@media(max-width:860px){.grid2{grid-template-columns:1fr}.acesso{grid-template-columns:1fr}}
+  .pct{display:inline-block;height:10px;background:#2e9e4f;border-radius:5px;vertical-align:middle}
+  textarea.papel{width:100%;min-height:120px;font-family:monospace;font-size:14px}
+  .msg{font-size:13px;padding:8px 10px;border-radius:8px;margin-top:8px;display:none}.msg.err{display:block;background:#fdecea;color:#8a1c1c}.msg.ok{display:block;background:#e8f5ec;color:var(--verde)}
+</style>
+</head>
+<body>
+<header>
+  <img src="/static/logo.png" alt="">
+  <div class="links"><a class="link" href="/">✨ Novo plano</a><a class="link" href="/historico">🗂 Histórico</a><a class="link" href="/atividades?id={{ item.id }}">📝 Provas e atividades</a>{% if usuario %}<a class="link" href="/conta">👤 {{ usuario.nome or usuario.email }}</a>{% endif %}<a class="link" href="/sair">Sair</a></div>
+</header>
+<main>
+  <section class="card">
+    <h1>✅ Correção — {{ item.conteudo.titulo }}</h1>
+    <p class="sub">{{ tipos[item.params.tipo] }} · {{ item.params.disciplina }} · <b id="turmaTxt">{{ ap.turma or item.params.serie }}</b> · Prof. {{ item.params.professor }}{% if item.params.avaliativa %} · valor {{ item.params.valor_total }} pt{% endif %}</p>
+    <div class="acesso">
+      <img src="/api/aplicacoes/{{ ap.id }}/qr" alt="QR code">
+      <div>
+        <div style="font-size:12px;color:var(--muted)">CÓDIGO PARA OS ALUNOS</div>
+        <div class="codigo">{{ ap.codigo }}</div>
+        <div class="lnk">{{ link }}</div>
+        <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <a class="acao az" href="/api/aplicacoes/{{ ap.id }}/folha" target="_blank">🖨 Folha com QR (projetar/imprimir)</a>
+          <button class="acao" onclick="navigator.clipboard.writeText('{{ link }}');this.textContent='✔ copiado'">Copiar link</button>
+          <button class="acao {% if ap.aberta %}red{% else %}ok{% endif %}" id="btnAberta" onclick="alternarAberta()">{% if ap.aberta %}🔒 Encerrar prova{% else %}🔓 Reabrir prova{% endif %}</button>
+          <label style="font-size:13px;display:flex;gap:6px;align-items:center"><input type="checkbox" id="mostrarNota" {% if ap.mostrar_nota %}checked{% endif %} onchange="patch({mostrar_nota:this.checked})"> aluno vê acertos ao enviar</label>
+        </div>
+        <p class="sub" style="margin:10px 0 0">Alunos entram em <b>{{ link.split('/prova/')[0] }}/prova</b> e digitam o código, ou leem o QR. Múltipla escolha é corrigida na hora; discursivas recebem sugestão da IA para você confirmar.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+      <h2 style="margin:0">Respostas</h2><span style="flex:1"></span>
+      <button class="acao" onclick="carregar()">↻ Atualizar</button>
+      <button class="acao ok" onclick="confirmarTodas()" id="btnConfTodas" title="Aceita as sugestões da IA de todas as provas marcadas como 'revisar'">✔ Aceitar todas as sugestões</button>
+      <a class="acao az" href="/api/aplicacoes/{{ ap.id }}/exportar">📥 Excel</a>
+      <a class="acao pri" href="/api/aplicacoes/{{ ap.id }}/relatorio.pdf" target="_blank">⬇ Relatório PDF</a>
+    </div>
+    <div class="stats" id="stats"></div>
+    <div id="lista"><div class="vazio">Carregando…</div></div>
+  </section>
+
+  <div class="grid2">
+    <section class="card">
+      <h2>📊 Desempenho por questão</h2>
+      <div id="porQ" class="vazio">Sem respostas corrigidas ainda.</div>
+    </section>
+    <section class="card">
+      <h2>📄 Prova em papel — lançar respostas</h2>
+      <p class="sub">Uma linha por aluno: <b>número; nome; letras da múltipla escolha</b> (na ordem das questões; use <b>-</b> para em branco). Ex.: <code>12; Ana Souza; BCADE-A</code>. As discursivas você lança pela lupa depois, ou digita as notas no final: <code>; 2,5; 3</code>.</p>
+      <textarea class="papel" id="papel" placeholder="12; Ana Souza; BCADEAB&#10;13; Bruno Lima; BCBDE-A; 2,5; 3"></textarea>
+      <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="acao pri" onclick="lancar()" id="btnLancar">Lançar e corrigir</button><span style="font-size:12px;color:var(--muted)">Ordem da múltipla escolha: <span id="ordemMe"></span></span></div>
+      <div class="msg" id="msgPapel"></div>
+    </section>
+  </div>
+</main>
+
+<div class="modal" id="modal"><div class="box">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><h2 style="margin:0" id="mTit"></h2><span style="flex:1"></span><button class="acao" onclick="fecharModal()">✕ Fechar</button></div>
+  <div id="mBody"></div>
+  <div style="display:flex;gap:8px;margin-top:12px;align-items:center;flex-wrap:wrap"><button class="acao ok" onclick="confirmarUma()">✔ Aceitar sugestões restantes desta prova</button><button class="acao" onclick="recorrigir()">↻ Recorrigir com IA</button><span style="flex:1"></span><span id="mTotal" style="font-weight:700"></span></div>
+</div></div>
+
+<script>
+const AP={{ ap.id }}; const AVAL={{ 'true' if item.params.avaliativa else 'false' }};
+const $=id=>document.getElementById(id);
+let dados=null, atualR=null;
+function esc(t){return String(t??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function fv(v){ return v==null?'—':(Math.round(v*100)/100).toString().replace('.',','); }
+function fmt(dt){ if(!dt) return ''; const [d,h]=dt.split(' '); const [y,m,dd]=d.split('-'); return `${dd}/${m}/${y} ${h?h.slice(0,5):''}`; }
+const SIT={corrigido:'Corrigida',revisar:'Revisar',pendente:'Pendente'};
+async function carregar(){
+  const r=await fetch(`/api/aplicacoes/${AP}/respostas`); if(!r.ok){ $('lista').innerHTML='<div class="vazio">Erro ao carregar.</div>'; return; }
+  dados=await r.json(); const e=dados.estatisticas, rs=dados.respostas;
+  $('ordemMe').textContent = dados.questoes.map((q,i)=>q.tipo==='me'?`Q${i+1}`:null).filter(Boolean).join(', ')||'(nenhuma)';
+  $('stats').innerHTML=`<div class="stat"><b>${e.n_respostas}</b>respostas</div><div class="stat"><b>${e.n_corrigidas}</b>corrigidas</div><div class="stat" ${e.n_revisar?'style="background:#fff7e6"':''}><b>${e.n_revisar}</b>para revisar</div><div class="stat"><b>${fv(e.media)}</b>média${e.teto?` (de ${fv(e.teto)})`:''}</div><div class="stat"><b>${e.abaixo_media}</b>abaixo de 60%</div>`;
+  $('btnConfTodas').style.display=e.n_revisar?'':'none';
+  if(!rs.length){ $('lista').innerHTML='<div class="vazio">Nenhuma resposta ainda. Assim que os alunos enviarem, aparecem aqui (clique em Atualizar).</div>'; $('porQ').innerHTML='<div class="vazio">Sem respostas corrigidas ainda.</div>'; return; }
+  $('lista').innerHTML=`<table><thead><tr><th>Nº</th><th>Estudante</th><th>Questões</th><th>Acertos ME</th>${AVAL?'<th>Nota ME</th><th>Nota disc.</th>':''}<th>Nota</th><th>Situação</th><th>Enviado</th><th></th></tr></thead><tbody>${rs.map(r=>{const c=r.correcao||{};return `<tr>
+    <td>${esc(r.aluno_numero)}</td><td>${esc(r.aluno_nome)} <small style="color:var(--muted)">${r.origem==='papel'?'📄':'📱'}</small></td>
+    <td><div class="barra-q">${(c.itens||[]).map(it=>`<span class="bq ${it.tipo==='me'?(it.marcada==null?'nulo':it.acertou?'ok':'no'):'disc'}" title="Q${it.i+1}: ${it.tipo==='me'?(it.marcada==null?'em branco':'marcou '+'ABCDE'[it.marcada]+(it.acertou?' ✔':' ✗ (correta '+'ABCDE'[it.correta]+')')):'nota '+fv(it.nota)+' de '+fv(it.valor)}">${it.tipo==='me'?(it.marcada==null?'-':'ABCDE'[it.marcada]):fv(it.nota)}</span>`).join('')}</div></td>
+    <td>${c.total_me?`${c.acertos_me}/${c.total_me}`:'—'}</td>${AVAL?`<td>${fv(r.nota_me)}</td><td>${fv(r.nota_disc)}</td>`:''}<td><b>${fv(r.nota)}</b></td>
+    <td><span class="tag ${r.status}">${SIT[r.status]||r.status}</span></td><td style="white-space:nowrap;font-size:12px">${fmt(r.enviado_em)}</td>
+    <td style="white-space:nowrap"><button class="acao" onclick="abrir(${r.id})">🔍 Ver</button><button class="acao red" onclick="excluir(${r.id})">✕</button></td></tr>`}).join('')}</tbody></table>`;
+  // por questão
+  $('porQ').innerHTML = e.n_corrigidas ? `<table><thead><tr><th>Q</th><th>Tipo</th><th>% acerto</th><th>Distribuição (A–E)</th></tr></thead><tbody>${e.por_questao.map(x=>`<tr title="${esc(x.enunciado)}"><td>${x.i+1}${x.habilidade?`<br><small style="color:var(--muted)">${esc(x.habilidade)}</small>`:''}</td><td>${x.tipo==='me'?'ME':'Disc.'}</td><td>${x.pct==null?'—':`<span class="pct" style="width:${x.pct*0.8}px;background:${x.pct<50?'#d9534f':x.pct<70?'#e0a800':'#2e9e4f'}"></span> ${x.pct}%`}</td><td style="font-size:12px">${x.distribuicao?x.distribuicao.map((n,k)=>`<span style="${k===x.correta?'font-weight:700;color:var(--verde)':''}">${'ABCDE'[k]}:${n}</span>`).join(' '):''}</td></tr>`).join('')}</tbody></table>${e.habilidades.length?`<p class="sub" style="margin-top:10px"><b>Por habilidade:</b> ${e.habilidades.map(h=>`${esc(h.habilidade)} ${h.pct}%`).join(' · ')}</p>`:''}` : '<div class="vazio">Sem respostas corrigidas ainda.</div>';
+}
+async function patch(b){ await fetch(`/api/aplicacoes/${AP}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}); }
+async function alternarAberta(){ const aberta=$('btnAberta').textContent.includes('Encerrar'); if(aberta && !confirm('Encerrar a prova? Alunos não conseguirão mais enviar. Você pode reabrir depois.')) return; await patch({aberta:!aberta}); location.reload(); }
+async function excluir(id){ if(!confirm('Excluir esta resposta?')) return; await fetch(`/api/respostas/${id}`,{method:'DELETE'}); carregar(); }
+async function confirmarTodas(){ const rs=dados.respostas.filter(r=>r.status==='revisar'); if(!rs.length) return; if(!confirm(`Aceitar as sugestões da IA em ${rs.length} prova(s)? Você ainda pode ajustar notas depois.`)) return; for(const r of rs) await fetch(`/api/respostas/${r.id}/confirmar`,{method:'POST'}); carregar(); }
+
+// ---------- modal
+function abrir(id){ atualR=dados.respostas.find(r=>r.id===id); renderModal(); $('modal').style.display='flex'; }
+function fecharModal(){ $('modal').style.display='none'; carregar(); }
+function renderModal(){
+  const r=atualR, c=r.correcao||{itens:[]}; $('mTit').textContent=`${r.aluno_numero?r.aluno_numero+' · ':''}${r.aluno_nome}`;
+  $('mBody').innerHTML=c.itens.map(it=>{const q=dados.questoes[it.i]; return `<div class="rq">
+    <div style="display:flex;gap:8px;align-items:center"><b>Questão ${it.i+1}</b><span class="tag ${it.tipo==='me'?(it.acertou?'corrigido':'pendente'):(it.origem==='professor'?'corrigido':'revisar')}">${it.tipo==='me'?(it.acertou?'acertou':'errou'):(it.origem==='professor'?'confirmada':'sugestão da IA')}</span>${AVAL?`<span style="font-size:12px;color:var(--muted)">vale ${fv(it.valor)} pt</span>`:''}</div>
+    <div class="e">${esc(q.enunciado)}</div>
+    ${it.tipo==='me' ? `<div>Marcou: <b>${it.marcada==null?'em branco':'ABCDE'[it.marcada]+') '+esc(q.alternativas[it.marcada])}</b>${it.acertou?'':`<br>Correta: <b>${'ABCDE'[it.correta]}) ${esc(q.alternativas[it.correta])}</b>`}</div>
+       <div class="nota"><span>Nota:</span><input type="number" step="0.1" min="0" max="${it.valor}" value="${it.nota}" id="n${it.i}"><button class="acao" onclick="salvarNota(${it.i})" title="Use para anular a questão ou dar crédito parcial">Salvar</button></div>`
+    : `<div class="aluno">${it.texto?esc(it.texto):'<i style="color:var(--muted)">em branco</i>'}</div>
+       <details><summary style="font-size:12px;cursor:pointer;color:var(--azul)">Resposta esperada e critérios</summary><div class="esp">${esc(q.resposta||'')}\n${esc(q.criterios||'')}</div></details>
+       ${it.comentario?`<div style="font-size:13px;margin-top:6px">💬 ${esc(it.comentario)} ${it.confianca?`<span class="conf ${it.confianca}">(confiança ${it.confianca})</span>`:''}</div>`:''}
+       <div class="nota"><span>Nota:</span><input type="number" step="0.1" min="0" max="${it.valor}" value="${it.nota??''}" id="n${it.i}" placeholder="?"><span style="font-size:12px;color:var(--muted)">de ${fv(it.valor)}</span><input type="text" id="c${it.i}" value="${esc(it.comentario||'')}" placeholder="comentário ao aluno (opcional)"><button class="acao ok" onclick="salvarNota(${it.i})">✔ Confirmar</button></div>`}
+  </div>`}).join('');
+  $('mTotal').textContent=`Nota: ${fv(c.nota)}${AVAL?' de '+fv(c.possivel):''} · ${SIT[c.status]||''}`;
+}
+async function salvarNota(i){
+  const nota=$('n'+i).value, com=$('c'+i)?$('c'+i).value:null; if(nota==='') { alert('Informe a nota.'); return; }
+  const r=await fetch(`/api/respostas/${atualR.id}/nota`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({i,nota,comentario:com})}); const j=await r.json();
+  if(!r.ok){ alert(j.erro); return; } atualR.correcao=j.correcao; atualR.status=j.correcao.status; atualR.nota=j.correcao.nota; renderModal();
+}
+async function confirmarUma(){ const r=await fetch(`/api/respostas/${atualR.id}/confirmar`,{method:'POST'}); const j=await r.json(); if(r.ok){ atualR.correcao=j.correcao; atualR.status=j.correcao.status; renderModal(); } }
+async function recorrigir(){ const r=await fetch(`/api/respostas/${atualR.id}/recorrigir`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}); const j=await r.json(); if(r.ok){ atualR.correcao=j.correcao; atualR.status=j.correcao.status; renderModal(); } }
+
+// ---------- papel
+async function lancar(){
+  const linhas=$('papel').value.split('\n').map(l=>l.trim()).filter(Boolean); if(!linhas.length) return;
+  const idxDisc=dados.questoes.map((q,i)=>q.tipo==='disc'?i:null).filter(x=>x!==null);
+  const alunos=linhas.map(l=>{ const p=l.split(';').map(x=>x.trim()); let numero='',nome='',me='',notas=[];
+    if(p.length>=3 && /^\d+$/.test(p[0])){ numero=p[0]; nome=p[1]; me=p[2]; notas=p.slice(3); } else { nome=p[0]; me=p[1]||''; notas=p.slice(2); }
+    const notas_disc={}; notas.forEach((n,k)=>{ if(idxDisc[k]!==undefined && n!=='') notas_disc[idxDisc[k]]=n; });
+    return {numero,nome,me,notas_disc}; });
+  $('btnLancar').disabled=true; $('msgPapel').className='msg';
+  const r=await fetch(`/api/aplicacoes/${AP}/lancar`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({alunos})}); const j=await r.json(); $('btnLancar').disabled=false;
+  $('msgPapel').className='msg '+(r.ok?'ok':'err'); $('msgPapel').textContent=r.ok?`✔ ${j.feitos} aluno(s) lançado(s) e corrigido(s).`:(j.erro||'Erro');
+  if(r.ok){ $('papel').value=''; carregar(); }
+}
+carregar();
+</script>
+</body>
+</html>

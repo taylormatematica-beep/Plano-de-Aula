@@ -125,6 +125,18 @@
       <button class="btn cinza" id="btnDrive" onclick="enviarDrive()" style="display:none">▲ Enviar ao Drive</button>
     </div>
     <div class="msg" id="msgEd"></div>
+    <div id="aplicBox" style="margin-top:16px;border-top:1px solid var(--borda);padding-top:14px">
+      <h2 style="margin-bottom:4px">✅ Aplicar e corrigir</h2>
+      <p class="sub">Gere um código: os alunos respondem pelo celular (ou você lança as respostas da prova em papel) e a correção é automática — múltipla escolha na hora, discursivas com sugestão da IA.</p>
+      <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
+        <div><label>Turma</label><input id="apTurma" placeholder="ex.: 1º ano A" style="width:150px"></div>
+        <div><label>Tempo (min, opcional)</label><input id="apTempo" type="number" min="5" max="300" placeholder="livre" style="width:110px"></div>
+        <label class="chk"><input type="checkbox" id="apEmb" checked> embaralhar alternativas</label>
+        <label class="chk"><input type="checkbox" id="apNota"> aluno vê acertos ao enviar</label>
+        <button class="btn verde" onclick="criarAplicacao()" id="btnAplic">➕ Gerar código de prova</button>
+      </div>
+      <div id="aplicLista" style="margin-top:10px"></div>
+    </div>
   </section>
 
   <!-- Histórico de atividades -->
@@ -197,6 +209,7 @@ function abrir(j){
   $('btnDist').style.display=j.params.avaliativa?'':'none';
   $('btnDrive').style.display=DRIVE?'':'none';
   renderQ(); msg('msgEd',''); $('cardEd').scrollIntoView({behavior:'smooth'});
+  $('apTurma').value=j.params.serie||''; carregarAplicacoes();
 }
 function renderQ(){
   const av=atual.params.avaliativa;
@@ -248,6 +261,21 @@ async function enviarDrive(){
   const r=await fetch(`/api/atividades/${atual.id}/drive`,{method:'POST'}); const j=await r.json(); b.disabled=false; b.textContent='▲ Enviar ao Drive';
   msg('msgEd', r.ok?'✔ PDF da prova enviado à sua pasta no Drive.':(j.erro||'Erro'), r.ok?'ok':'err'); carregarAtiv();
 }
+async function carregarAplicacoes(){
+  if(!atual) return; const r=await fetch(`/api/atividades/${atual.id}/aplicacoes`); if(!r.ok) return; const aps=await r.json();
+  $('aplicLista').innerHTML = aps.length ? `<table><thead><tr><th>Código</th><th>Turma</th><th>Criada</th><th>Respostas</th><th>Situação</th><th></th></tr></thead><tbody>${aps.map(a=>`<tr>
+    <td><b style="font-size:18px;letter-spacing:2px;color:var(--verm)">${esc(a.codigo)}</b></td><td>${esc(a.turma||'')}</td><td style="white-space:nowrap">${fmt(a.criado_em)}</td>
+    <td>${a.n_respostas} ${a.n_corrigidas<a.n_respostas?`<small style="color:#7a4b00">(${a.n_respostas-a.n_corrigidas} p/ revisar)</small>`:''}</td>
+    <td>${a.aberta?'<span style="color:var(--verde)">● aberta</span>':'<span style="color:var(--muted)">○ encerrada</span>'}</td>
+    <td style="white-space:nowrap"><a class="acao pdf" href="/correcao/${a.id}">✅ Corrigir / resultados</a><a class="acao" href="/api/aplicacoes/${a.id}/folha" target="_blank">🖨 QR</a><button class="acao red" onclick="excluirAplicacao(${a.id},${a.n_respostas})">✕</button></td></tr>`).join('')}</tbody></table>` : '';
+}
+async function criarAplicacao(){
+  if(!await salvar()) return; const b=$('btnAplic'); b.disabled=true;
+  const r=await fetch(`/api/atividades/${atual.id}/aplicacoes`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({turma:$('apTurma').value,tempo_min:$('apTempo').value||null,embaralhar:$('apEmb').checked,mostrar_nota:$('apNota').checked})});
+  const j=await r.json(); b.disabled=false; if(!r.ok){ alert(j.erro||'Erro'); return; }
+  location.href='/correcao/'+j.id;
+}
+async function excluirAplicacao(id,n){ if(!confirm(n?`Excluir esta aplicação e as ${n} resposta(s) dos alunos?`:'Excluir esta aplicação?')) return; await fetch(`/api/aplicacoes/${id}`,{method:'DELETE'}); carregarAplicacoes(); }
 async function abrirSalva(id){
   const r=await fetch('/api/atividades/'+id); const j=await r.json(); if(!r.ok){ alert(j.erro); return; }
   abrir({id:j.id, params:j.params, conteudo:j.conteudo});
