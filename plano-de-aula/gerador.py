@@ -180,6 +180,35 @@ TENTATIVAS_POR_MODELO = 2              # tentativas por modelo quando o Google r
 ESPERA_ENTRE_TENTATIVAS = (2, 4, 6)    # segundos
 MAX_MODELOS_TENTADOS = 6               # depois disso, desiste e avisa (em vez de esperar minutos)
 _cache_modelos: dict = {"chave": None, "lista": [], "quando": 0.0}
+# Disjuntor: quando um modelo falha (cota, sobrecarga, tempo esgotado), TODOS os pedidos seguintes o pulam por um tempo,
+# em vez de cada lote esperar e falhar de novo no mesmo modelo.
+_evitar_ate: dict[str, float] = {}
+_sem_thinking: set = set()               # modelos que rejeitam thinkingConfig (não repete o pedido em dobro)
+_ultimo_ok: dict = {"modelo": "", "quando": 0.0, "segundos": 0.0}
+_historico: list = []                    # últimas chamadas (modelo, status, segundos) para o diagnóstico
+_lock = __import__("threading").Lock()
+
+
+def _marcar_ruim(modelo: str, segundos: int):
+    with _lock:
+        _evitar_ate[modelo] = max(_evitar_ate.get(modelo, 0), time.time() + segundos)
+
+
+def _registrar(modelo: str, status, segundos: float):
+    with _lock:
+        _historico.append({"modelo": modelo, "status": str(status), "segundos": round(segundos, 1),
+                           "quando": time.strftime("%H:%M:%S")})
+        del _historico[:-30]
+        if status == 200:
+            _ultimo_ok.update(modelo=modelo, quando=time.time(), segundos=segundos)
+    print(f"[IA] {modelo} -> {status} em {segundos:.1f}s", flush=True)
+
+
+def estado_ia() -> dict:
+    """Resumo para o diagnóstico: modelo em uso, modelos evitados no momento e últimas chamadas."""
+    agora = time.time()
+    return {"ultimo_ok": dict(_ultimo_ok), "evitados": {m: int(t - agora) for m, t in _evitar_ate.items() if t > agora},
+            "historico": list(_historico[-15:])}
 
 GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
@@ -240,7 +269,7 @@ def _ordenar_candidatos(preferido: str, disponiveis: list[str]) -> list[str]:
     return ordem[:MAX_MODELOS_TENTADOS]
 
 
-TIMEOUT_GEMINI = int(os.getenv("AI_TIMEOUT", "75"))          # segundos por tentativa
+TIMEOUT_GEMINI = int(os.getenv("AI_TIMEOUT", "50"))          # segundos por tentativa
 THINKING_BUDGET = int(os.getenv("AI_THINKING_BUDGET", "512"))  # quanto o modelo pode "pensar" (0 = desligado)
 
 
@@ -293,17 +322,35 @@ def _chamar_gemini_com_chave(cfg: dict, prompt: str, system: str | None = None, 
     except requests.RequestException:
         disponiveis = []
     candidatos = _ordenar_candidatos(cfg["model"].strip(), disponiveis)
+    agora = time.time()
+    # o modelo que respondeu bem há pouco vai primeiro (evita testar de novo os que estão lentos/esgotados)
+    if _ultimo_ok["modelo"] in candidatos and agora - _ultimo_ok["quando"] < 900:
+        candidatos.remove(_ultimo_ok["modelo"])
+        candidatos.insert(0, _ultimo_ok["modelo"])
+    bons = [m for m in candidatos if _evitar_ate.get(m, 0) <= agora]
+    candidatos = bons + [m for m in candidatos if m not in bons]     # evitados só em último caso
 
     erros = []
     houve_429 = False
     for m in candidatos:
         for tentativa in range(TENTATIVAS_POR_MODELO):
+            corpo = body
+            if m in _sem_thinking:
+                corpo = json.loads(json.dumps(body)); corpo["generationConfig"].pop("thinkingConfig", None)
+            t0 = time.time()
             try:
-                r = _gemini_request(m, cfg["api_key"], body)
+                r = _gemini_request(m, cfg["api_key"], corpo)
+            except requests.Timeout:
+                _registrar(m, "tempo esgotado", time.time() - t0)
+                erros.append(f"{m}: tempo esgotado ({TIMEOUT_GEMINI}s)")
+                _marcar_ruim(m, 180)                  # lento agora -> outros lotes nem tentam; vai para o próximo modelo
+                break
             except requests.RequestException as e:
+                _registrar(m, type(e).__name__, time.time() - t0)
                 erros.append(f"{m}: falha de conexão ({type(e).__name__})")
                 time.sleep(ESPERA_ENTRE_TENTATIVAS[min(tentativa, 2)])
                 continue
+            _registrar(m, r.status_code, time.time() - t0)
 
             if r.status_code == 200:
                 try:
@@ -312,17 +359,21 @@ def _chamar_gemini_com_chave(cfg: dict, prompt: str, system: str | None = None, 
                     erros.append(f"{m}: resposta vazia")
                     break
             if r.status_code == 400 and "thinking" in _msg_erro_google(r).lower():
-                # modelo não suporta configuração de pensamento -> reenvia sem ela
+                # modelo não suporta configuração de pensamento -> reenvia sem ela (e lembra, para não repetir)
+                _sem_thinking.add(m)
                 body_sem = json.loads(json.dumps(body))
                 body_sem["generationConfig"].pop("thinkingConfig", None)
                 try:
+                    t0 = time.time()
                     r = _gemini_request(m, cfg["api_key"], body_sem)
+                    _registrar(m, r.status_code, time.time() - t0)
                     if r.status_code == 200:
                         return r.json()["candidates"][0]["content"]["parts"][0]["text"]
                 except (requests.RequestException, KeyError, IndexError):
                     pass
             if r.status_code == 404:                  # modelo não existe -> próximo modelo
                 erros.append(f"{m}: não encontrado (404)")
+                _marcar_ruim(m, 3600)
                 break
             if r.status_code in (401, 403):
                 raise RuntimeError("Chave de API do Gemini inválida ou sem permissão. "
@@ -331,10 +382,14 @@ def _chamar_gemini_com_chave(cfg: dict, prompt: str, system: str | None = None, 
             if r.status_code == 429:                 # cota esgotada neste modelo -> próximo modelo, sem esperar
                 erros.append(f"{m}: cota esgotada (429)")
                 houve_429 = True
+                _marcar_ruim(m, 60)
                 break
-            if r.status_code in (500, 502, 503, 504):  # sobrecarga -> espera curta e repete
+            if r.status_code in (500, 502, 503, 504):  # sobrecarga -> uma espera curta e repete; depois evita o modelo
                 erros.append(f"{m}: indisponível ({r.status_code})")
-                time.sleep(ESPERA_ENTRE_TENTATIVAS[min(tentativa, 2)])
+                if tentativa + 1 >= TENTATIVAS_POR_MODELO:
+                    _marcar_ruim(m, 120)
+                else:
+                    time.sleep(ESPERA_ENTRE_TENTATIVAS[min(tentativa, 2)])
                 continue
             erros.append(f"{m}: {r.status_code} {_msg_erro_google(r)[:120]}")
             break

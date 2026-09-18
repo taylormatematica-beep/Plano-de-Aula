@@ -272,6 +272,7 @@ def diagnostico():
         "DIRECAO_NOME": DIRECAO_NOME or "❌ vazio",
         "DATABASE_URL": "✅ PostgreSQL" if db.USA_PG else "⚠️ não definida (usando SQLite local — histórico some a cada deploy no Render)",
         "IA": f"{cfg['provider']} · {cfg['model']} · chave {'✅' if cfg['api_key'] else '❌'}",
+        "IA — situação agora": _ia_situacao(),
         "Google Drive": ("✅ conectado como " + drive.status()["conta"]) if drive.conectado()
                         else ("⚠️ credenciais OK, falta conectar (Configurações)" if drive.credenciais_ok()
                               else "— não configurado (opcional)"),
@@ -519,6 +520,49 @@ def _codigo_visto(id_: int, quando: str) -> str:
     """Código curto de verificação (impresso no carimbo), derivado do plano + data/hora + chave secreta."""
     h = hashlib.sha256(f"{id_}|{quando}|{app.secret_key}".encode()).hexdigest().upper()
     return f"{h[:4]}-{h[4:8]}"
+
+
+def _ia_situacao() -> str:
+    """Modelo em uso, modelos temporariamente evitados e últimas chamadas (com tempo de resposta)."""
+    try:
+        import gerador
+        e = gerador.estado_ia()
+    except Exception as ex:  # noqa: BLE001
+        return f"— ({type(ex).__name__})"
+    u = e["ultimo_ok"]
+    partes = []
+    if u.get("modelo"):
+        partes.append(f"último modelo que respondeu bem: <b>{u['modelo']}</b> ({u['segundos']:.1f}s)")
+    else:
+        partes.append("nenhuma chamada desde que o servidor iniciou")
+    if e["evitados"]:
+        partes.append("evitando no momento: " + ", ".join(f"{m} (por {s}s)" for m, s in e["evitados"].items()))
+    if e["historico"]:
+        partes.append("últimas chamadas: " + " · ".join(f"{h['quando']} {h['modelo'].replace('gemini-','')} {h['status']} {h['segundos']}s" for h in e["historico"][-8:]))
+    partes.append("<a href='/diagnostico/ia'>testar a IA agora</a> (faz 1 pedido pequeno e mede o tempo)")
+    return "<br>".join(partes)
+
+
+@app.route("/diagnostico/ia")
+def diagnostico_ia():
+    if not _e_supervisao():
+        return "Apenas a supervisão.", 403
+    import gerador, time as _t
+    cfg = gerador.carregar_config()
+    if not cfg["api_key"]:
+        return "<pre>IA não configurada (sem chave).</pre>"
+    t0 = _t.time()
+    try:
+        obj = gerador._pedir_json(cfg, "Responda somente com o JSON {\"ok\": true, \"soma\": 2+2}.", "Você responde apenas JSON.", 64)
+        res = f"OK em {_t.time()-t0:.1f}s — resposta: {obj}"
+    except Exception as ex:  # noqa: BLE001
+        res = f"FALHOU após {_t.time()-t0:.1f}s — {str(ex)[:600]}"
+    e = gerador.estado_ia()
+    hist = "\n".join(f"  {h['quando']}  {h['modelo']:<32} {h['status']:<14} {h['segundos']}s" for h in e["historico"])
+    return (f"<pre style='font:14px/1.6 monospace;padding:16px'>TESTE DA IA\n\n{res}\n\n"
+            f"Modelo que funcionou por último: {e['ultimo_ok'].get('modelo') or '—'}\n"
+            f"Evitados no momento: {e['evitados'] or 'nenhum'}\n\nÚltimas chamadas (hora · modelo · status · tempo):\n{hist}\n\n"
+            f"<a href='/diagnostico'>← diagnóstico</a></pre>")
 
 
 def _medir_banco() -> str:
